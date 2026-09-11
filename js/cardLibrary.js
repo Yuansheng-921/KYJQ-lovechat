@@ -308,24 +308,41 @@ window.LoveChat = window.LoveChat || {};
 
     /* ---- 导入 ---- */
 
-    /** 按分组导入（分类文件 → 主字卡，保留分组） */
-    importByGroup(jsonText) {
+    /** 按分组导入（分类文件 → 主字卡，保留分组）
+     *  mode: 'merge' 添加（在现有基础上追加，默认）| 'replace' 覆盖（清空全部主字卡与分类后替换） */
+    importByGroup(jsonText, mode = 'merge') {
       let data;
       try { data = JSON.parse(jsonText); } catch (e) { return { ok: false, error: 'JSON 格式错误：' + e.message }; }
-      let added = 0;
+      // 先解析出待导入条目（格式不符直接返回，不动旧数据，避免覆盖模式误删）
+      const incoming = [];
       if (data.mode === 'byCategory' && data.grouped) {
         for (const [cat, cards] of Object.entries(data.grouped)) {
           for (const c of (Array.isArray(cards) ? cards : [])) {
-            if (c.content) { this.add('main', { content: c.content, category: cat, weight: c.weight }); added++; }
+            if (c.content) incoming.push({ content: c.content, category: cat, weight: c.weight });
           }
         }
       } else if (Array.isArray(data)) {
         // 兼容 v1 纯数组
-        for (const c of data) { if (c.content || c.text) { this.add('main', { content: c.content || c.text, category: c.category, weight: c.weight }); added++; } }
+        for (const c of data) {
+          if (c.content || c.text) incoming.push({ content: c.content || c.text, category: c.category, weight: c.weight });
+        }
       } else {
         return { ok: false, error: '文件格式不符（需按分类导出文件）' };
       }
-      return { ok: true, added };
+      // 覆盖模式：确认文件可用后，才删除全部现有主字卡和分类
+      if (mode === 'replace') {
+        this.data.main = [];
+        this._emptyCats = [];
+        Storage.set('emptyCats', this._emptyCats);
+        if (this._recent && this._recent.main) this._recent.main = [];
+        this._saveRecent();
+        this.save();
+      }
+      let added = 0;
+      for (const item of incoming) {
+        if (this.add('main', item)) added++;
+      }
+      return { ok: true, added, replaced: mode === 'replace' };
     },
 
     /** 全量导入（各模块分别导入） */

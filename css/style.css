@@ -722,6 +722,9 @@ svg { display: block; }
   cursor: pointer; transition: background .15s;
 }
 .popup-item:hover { background: var(--surface-hover); }
+/* 导入方式（覆盖/添加）浮窗：不透明、宽一点容纳长文案 */
+#importModeMenu { min-width: 210px; background: #FFFFFF; }
+[data-theme="dark"] #importModeMenu { background: #322C44; }
 
 /* 表情面板 */
 .emoji-panel {
@@ -1530,8 +1533,10 @@ svg { display: block; }
 [data-theme="dark"] .bubble-design-content {
   background: #322C44;
 }
-/* 扩大此弹窗的容器宽度（覆盖 .modal 默认 380px；移动端由 480px 媒体查询接管） */
-#bubbleDesignModal { max-width: 680px; }
+/* 扩大此弹窗的容器宽度（覆盖 .modal 默认 380px；移动端由 480px 媒体查询接管）
+   同时把 .modal 的半透明 --surface-elevated 覆盖为不透明实色，消除边缘半透明 */
+#bubbleDesignModal { max-width: 680px; background: #FFFFFF; }
+[data-theme="dark"] #bubbleDesignModal { background: #322C44; }
 .bubble-design-body {
   display: flex; flex-direction: row; gap: 14px; flex: 1; min-height: 0;
   margin-top: 14px;

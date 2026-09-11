@@ -121,9 +121,15 @@ window.LoveChat = window.LoveChat || {};
         if (act === 'cat') this._openExportCatModal();
         else if (act === 'full') this._openExportFullModal();
       });
-      $('#importGroupBtn').addEventListener('click', () => this._doImport('group'));
+      $('#importGroupBtn').addEventListener('click', () => this._toggleImportModeMenu());
       $('#importFullBtn').addEventListener('click', () => this._doImport('full'));
-      $('#importCancelBtn').addEventListener('click', () => this._closeModal('importModal'));
+      // 主字卡按分组导入的方式选择（覆盖 / 添加）
+      $('#importModeMenu').addEventListener('click', (ev) => {
+        const btn = ev.target.closest('.popup-item'); if (!btn) return;
+        this._closeImportModeMenu();
+        this._doImport('group', btn.dataset.mode);
+      });
+      $('#importCancelBtn').addEventListener('click', () => { this._closeImportModeMenu(); this._closeModal('importModal'); });
       // 聊天输入新按钮
       $('#expandMenuBtn').addEventListener('click', () => this._toggleExpandMenu());
       $('#patBtn').addEventListener('click', () => this._openPatModal());
@@ -248,6 +254,13 @@ window.LoveChat = window.LoveChat || {};
       if (choiceMenu && !choiceMenu.hidden
           && !choiceMenu.contains(ev.target) && !$('#exportBtn').contains(ev.target)) {
         this._closeExportChoice();
+        return;
+      }
+      // 主字卡导入方式浮窗（覆盖/添加）：点任何空白处关闭
+      const importModeMenu = $('#importModeMenu');
+      if (importModeMenu && !importModeMenu.hidden
+          && !importModeMenu.contains(ev.target) && !$('#importGroupBtn').contains(ev.target)) {
+        this._closeImportModeMenu();
         return;
       }
       // 扩展菜单底部弹窗
@@ -1259,7 +1272,7 @@ window.LoveChat = window.LoveChat || {};
       if (this._activeModule === 'main') { this._showModal('importModal'); }
       else { this._doImport('module'); }
     },
-    _doImport(mode) {
+    _doImport(mode, importMode = 'merge') {
       const input = document.createElement('input');
       input.type = 'file'; input.accept = '.json,application/json';
       input.onchange = () => {
@@ -1267,16 +1280,39 @@ window.LoveChat = window.LoveChat || {};
         const reader = new FileReader();
         reader.onload = () => {
           let result;
-          if (mode === 'group') result = LC.CardLibrary.importByGroup(reader.result);
+          if (mode === 'group') result = LC.CardLibrary.importByGroup(reader.result, importMode);
           else if (mode === 'full') result = LC.CardLibrary.importFull(reader.result, 'merge');
           else result = LC.CardLibrary.importModule(reader.result, this._activeModule, 'merge');
-          if (result.ok) { this._renderPanelContent(); if (this._activeModule === 'main') { this._renderCatChips(); this._renderMainList(); } this._toast(`导入成功，新增 ${result.added} 条`, 2000); this._closeModal('importModal'); }
+          if (result.ok) {
+            this._renderPanelContent();
+            if (this._activeModule === 'main') { this._renderCatChips(); this._renderMainList(); }
+            const msg = result.replaced
+              ? `已覆盖，导入 ${result.added} 条字卡`
+              : `导入成功，新增 ${result.added} 条`;
+            this._toast(msg, 2000);
+            this._closeModal('importModal');
+          }
           else this._toast('导入失败：' + result.error, 3000);
         };
         reader.readAsText(file);
       };
       input.click();
     },
+
+    /* ---- 主字卡按分组导入：覆盖 / 添加 选择浮窗 ---- */
+    _toggleImportModeMenu() {
+      const m = $('#importModeMenu');
+      if (!m.hidden) { this._closeImportModeMenu(); return; }
+      const btn = $('#importGroupBtn');
+      const r = btn.getBoundingClientRect();
+      const menuW = 210;
+      let left = r.right - menuW; if (left < 8) left = 8;
+      if (left + menuW > window.innerWidth - 8) left = window.innerWidth - menuW - 8;
+      m.style.left = left + 'px';
+      m.style.top = (r.bottom + 4) + 'px';
+      m.hidden = false;
+    },
+    _closeImportModeMenu() { const m = $('#importModeMenu'); if (m) m.hidden = true; },
 
     /* ============ 设置 ============ */
     openSettingsPanel() {
@@ -2030,7 +2066,7 @@ window.LoveChat = window.LoveChat || {};
     },
     _closeAllModals() {
       // 静态弹窗 + 可能的动态弹窗；元素不存在直接跳过（防止 null.classList 报错阻断流程）
-      ['cardModal','categoryModal','exportCatModal','exportFullModal','exportChoiceMenu','importModal','multiSendModal','patModal','stickerPicker','inputExpand','expandMenuSheet','avatarCropModal','choiceModal','choiceDetailModal','bubbleDesignModal']
+      ['cardModal','categoryModal','exportCatModal','exportFullModal','exportChoiceMenu','importModal','importModeMenu','multiSendModal','patModal','stickerPicker','inputExpand','expandMenuSheet','avatarCropModal','choiceModal','choiceDetailModal','bubbleDesignModal']
         .forEach(id => this._hideModal(id));
     },
     _toast(msg, dur = 2000) {

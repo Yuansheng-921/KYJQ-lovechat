@@ -430,6 +430,12 @@
       <button class="popup-item" data-act="full">全量导出</button>
     </div>
 
+    <!-- 主字卡按分组导入：覆盖 / 添加 选择浮窗（点空白处关闭） -->
+    <div class="popup-menu" id="importModeMenu" hidden>
+      <button class="popup-item" data-mode="replace">覆盖（清空后替换）</button>
+      <button class="popup-item" data-mode="merge">添加（在现有基础上追加）</button>
+    </div>
+
     <!-- ===== 按分类导出勾选弹窗（不点外部关闭） ===== -->
     <div class="modal" id="exportCatModal" hidden>
       <div class="modal-content modal-tall">
@@ -461,7 +467,7 @@
       <div class="modal-content">
         <h3 class="modal-title">导入</h3>
         <p class="modal-hint">请选择导入方式，随后选择文件</p>
-        <button class="primary-btn full" id="importGroupBtn" style="margin-bottom:8px">按分组导入（主字卡）</button>
+        <button class="primary-btn full" id="importGroupBtn" style="margin-bottom:8px">按分组导入（主字卡）…</button>
         <button class="primary-btn full" id="importFullBtn">全量导入（各模块）</button>
         <div class="modal-actions">
           <button class="ghost-btn full" id="importCancelBtn">取消</button>

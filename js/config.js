@@ -77,35 +77,8 @@ window.LoveChat = window.LoveChat || {};
    *   content: 文字内容 / emoji字符 / 图片dataURL
    */
   LC.DEFAULT_CARDS = {
-    // 主字卡（文字，带分类）
-    main: [
-      { content: '嗯？怎么啦？', category: '日常', weight: 1 },
-      { content: '在呢，我在听。', category: '日常', weight: 1 },
-      { content: '哈哈，然后呢？', category: '日常', weight: 1 },
-      { content: '这样啊～', category: '日常', weight: 1 },
-      { content: '我知道了，你说得对。', category: '日常', weight: 1 },
-      { content: '今天过得怎么样？', category: '日常', weight: 1 },
-      { content: '今天也辛苦啦，抱抱～', category: '温柔', weight: 1 },
-      { content: '别担心，有我在呢。', category: '温柔', weight: 1 },
-      { content: '想你了，很想很想那种。', category: '温柔', weight: 2 },
-      { content: '不管发生什么，我都站在你这边。', category: '温柔', weight: 1 },
-      { content: '你笑起来的样子，我喜欢。', category: '温柔', weight: 1 },
-      { content: '累了就靠过来，我接着你。', category: '温柔', weight: 1 },
-      { content: '哼，不理你了！……才怪。', category: '撒娇', weight: 1 },
-      { content: '快哄我！不然……不然我再等一会儿。', category: '撒娇', weight: 1 },
-      { content: '你不理我的时候，我心里的甜都变酸了。', category: '撒娇', weight: 1 },
-      { content: '我要抱抱，现在就要。', category: '撒娇', weight: 1 },
-      { content: '晚安，梦里见。', category: '晚安', weight: 1 },
-      { content: '早点睡，明天又是新的一天。', category: '晚安', weight: 1 },
-      { content: '盖好被子，别着凉了。', category: '晚安', weight: 1 },
-      { content: '我替你关灯，你闭上眼就好。', category: '晚安', weight: 1 },
-      { content: '猜猜我在想什么？……想你想得发呆。', category: '调皮', weight: 1 },
-      { content: '你说话的时候，我有在偷偷数你的睫毛。', category: '调皮', weight: 1 },
-      { content: '今天天气不错，适合……想你。', category: '调皮', weight: 1 },
-      { content: '我数过秒针，等你的消息。', category: '思念', weight: 1 },
-      { content: '看到什么有趣的事，第一个想分享的人是你。', category: '思念', weight: 1 },
-      { content: '风经过的时候，我以为是你来了。', category: '思念', weight: 1 },
-    ],
+    // 主字卡（文字，带分类）— v5 起首次使用为空，由用户自行添加/导入
+    main: [],
     // Emoji（他可发送的 emoji）
     emoji: [
       { content: '😊', weight: 1 },

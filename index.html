@@ -245,6 +245,8 @@
               <option value="center">居中</option>
             </select>
           </label>
+          <h3 class="settings-group-title">气泡</h3>
+          <button class="ghost-btn" id="bubbleDesignBtn">气泡设计</button>
         </section>
         <!-- 对话体验 -->
         <section class="settings-pane" data-pane="chat" hidden>
@@ -586,6 +588,44 @@
       </div>
       <div class="letter-modal-body" id="letterModalBody"></div>
       <div class="letter-modal-footer" id="letterModalFooter" hidden></div>
+    </div>
+  </div>
+
+  <!-- ===== 气泡设计弹窗 ===== -->
+  <div class="modal" id="bubbleDesignModal" hidden>
+    <div class="modal-content bubble-design-content">
+      <div class="modal-header">
+        <h3 class="modal-title">气泡设计</h3>
+        <button class="modal-close" id="bubbleDesignClose">×</button>
+      </div>
+      <div class="bubble-design-body">
+        <!-- 左：效果预览 -->
+        <div class="bubble-preview" id="bubblePreview">
+          <div class="bubble-preview-chat">
+            <div class="msg-row partner">
+              <div class="avatar">🌸</div>
+              <div class="bubble-group">
+                <div class="msg-bubble message-received">在呢，我在听。</div>
+              </div>
+            </div>
+            <div class="msg-row me">
+              <div class="avatar">🌙</div>
+              <div class="bubble-group">
+                <div class="msg-bubble message-sent">想你了，很想很想那种。</div>
+              </div>
+            </div>
+          </div>
+          <p class="bubble-preview-hint">上方为实时预览（应用后生效）</p>
+        </div>
+        <!-- 右：CSS 输入 + 按钮 -->
+        <div class="bubble-editor">
+          <textarea id="bubbleCSSInput" class="bubble-css-input" spellcheck="false" placeholder="/* 直接粘贴气泡 CSS，使用以下两个类名： */&#10;.message-sent { ... }    /* 我发送的气泡（右侧） */&#10;.message-received { ... } /* 他发来的气泡（左侧） */"></textarea>
+          <div class="bubble-editor-actions">
+            <button class="ghost-btn" id="bubbleCSSClear">清空</button>
+            <button class="primary-btn" id="bubbleCSSApply">应用 css</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 

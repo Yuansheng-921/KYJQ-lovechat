@@ -205,6 +205,11 @@ window.LoveChat = window.LoveChat || {};
       $('#letterCancelBtn').addEventListener('click', () => this._exitComposeMode());
       $('#letterSendBtn').addEventListener('click', () => this._sendLetter());
       $('#letterModalClose').addEventListener('click', () => this._hideModal('letterModal'));
+      // 气泡设计弹窗
+      $('#bubbleDesignBtn').addEventListener('click', () => this._openBubbleDesign());
+      $('#bubbleDesignClose').addEventListener('click', () => this._hideModal('bubbleDesignModal'));
+      $('#bubbleCSSClear').addEventListener('click', () => { $('#bubbleCSSInput').value = ''; $('#bubbleCSSInput').focus(); });
+      $('#bubbleCSSApply').addEventListener('click', () => this._applyBubbleCSS());
       // 信件设置
       $('#setLetterReplyMin').addEventListener('input', (ev) => this._onLetterReplyHoursChange());
       $('#setLetterReplyMax').addEventListener('input', (ev) => this._onLetterReplyHoursChange());
@@ -318,7 +323,10 @@ window.LoveChat = window.LoveChat || {};
       const isPhoto = av && typeof av === 'object';
       const avatarHTML = this._avatarHTML(av);
       const isSticker = msg.kind === 'sticker';
-      const bubbleClass = isSticker ? 'msg-bubble sticker-bubble' : 'msg-bubble';
+      // message-sent/message-received 为"气泡设计"自定义 CSS 的别名类名，用户可直接粘贴用这两个类名写的 CSS
+      // 仅文字气泡加别名，表情包气泡不受自定义样式影响
+      const alias = isSticker ? '' : (msg.role === 'partner' ? ' message-received' : ' message-sent');
+      const bubbleClass = (isSticker ? 'msg-bubble sticker-bubble' : 'msg-bubble') + alias;
       const content = isSticker ? `<img src="${esc(msg.content)}" alt="表情" onerror="this.style.background='rgba(231,84,128,.15)';this.alt='[图片加载失败]'">` : esc(msg.content);
       const timeStr = this._fmtTime(msg.time);
       row.innerHTML = `<div class="avatar${isPhoto ? ' avatar-photo' : ''}">${avatarHTML}</div><div class="bubble-group"><div class="${bubbleClass}">${content}</div><div class="msg-time">${timeStr}</div></div>`;
@@ -1330,6 +1338,8 @@ window.LoveChat = window.LoveChat || {};
       $('#letterProactiveHint').textContent = `${LC.config.letterProactiveMinHours ?? 20} ~ ${LC.config.letterProactiveMaxHours ?? 48} 小时`;
       // 背景图
       this._renderBgPreview();
+      // 自定义气泡 CSS（应用已保存的样式）
+      try { this._applyBubbleCSSFromConfig(); } catch(e) { console.warn('气泡CSS加载失败', e); }
       $('#setReplyMin').value = LC.config.replyCountMin; $('#setReplyMax').value = LC.config.replyCountMax;
       this._updateReplyCountHint();
       this.renderColorPicker();
@@ -1918,9 +1928,109 @@ window.LoveChat = window.LoveChat || {};
     _showModal(id) { const m = $('#'+id); if (!m) return; m.hidden = false; requestAnimationFrame(() => m.classList.add('show')); },
     _hideModal(id) { const m = $('#'+id); if (!m) return; m.classList.remove('show'); setTimeout(() => { m.hidden = true; }, 300); },
     _closeModal(id) { this._hideModal(id); },
+
+    /* ---- 气泡设计 ---- */
+    _getCustomBubbleStyleEl() {
+      let el = document.getElementById('customBubbleCSS');
+      if (!el) { el = document.createElement('style'); el.id = 'customBubbleCSS'; document.head.appendChild(el); }
+      return el;
+    },
+    _applyBubbleCSSFromConfig() {
+      const css = (LC.config && LC.config.customBubbleCSS) || '';
+      this._getCustomBubbleStyleEl().textContent = css;
+    },
+    _openBubbleDesign() {
+      const ta = $('#bubbleCSSInput');
+      // 打开时显示已保存的 CSS（若无则填入默认模板）
+      ta.value = (LC.config && LC.config.customBubbleCSS) || this._defaultBubbleCSSTemplate();
+      this._showModal('bubbleDesignModal');
+      requestAnimationFrame(() => ta.focus());
+    },
+    _applyBubbleCSS() {
+      const ta = $('#bubbleCSSInput');
+      const css = ta.value.trim();
+      this._getCustomBubbleStyleEl().textContent = css;
+      LC.config.customBubbleCSS = css;
+      LC.Storage.set('config', LC.config);
+      this._toast('已应用气泡样式', 1500);
+    },
+    _defaultBubbleCSSTemplate() {
+      return `/* 我发送的气泡（右侧） */
+.message-sent {
+  position: relative !important;
+  background: rgba(245, 245, 245, 0.9) !important;
+  border: 2px solid rgba(210, 210, 210, 0.6) !important;
+  border-radius: 12px 12px 0 12px !important;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.06) !important;
+  padding: 5px 12px !important;
+  margin: 3px 0 3px auto !important;
+  font-size: 14px !important;
+  line-height: 1.4 !important;
+  color: #999 !important;
+  display: inline-block !important;
+  max-width: none !important;
+  overflow: visible !important;
+  margin-bottom: 18px !important;
+  z-index: 1 !important;
+}
+.message-sent::after {
+  content: '' !important;
+  position: absolute !important;
+  bottom: -13px !important;
+  left: -7px !important;
+  width: 26px !important;
+  height: 26px !important;
+  background: url('https://files.catbox.moe/bq2cxt.png') center / contain no-repeat !important;
+  image-rendering: pixelated !important;
+  -ms-interpolation-mode: nearest-neighbor !important;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  z-index: 99999 !important;
+  pointer-events: none !important;
+}
+.message-sent * {
+  color: #888 !important;
+}
+
+/* 他发来的气泡（左侧） */
+.message-received {
+  position: relative !important;
+  background: rgba(215, 215, 215, 0.7) !important;
+  border: 2px solid rgba(190, 190, 190, 0.5) !important;
+  border-radius: 12px 12px 12px 0 !important;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.06) !important;
+  padding: 5px 12px !important;
+  margin: 3px auto 3px 0 !important;
+  font-size: 14px !important;
+  line-height: 1.4 !important;
+  color: #555 !important;
+  display: inline-block !important;
+  max-width: none !important;
+  overflow: visible !important;
+  margin-bottom: 18px !important;
+  z-index: 1 !important;
+}
+.message-received::after {
+  content: '' !important;
+  position: absolute !important;
+  bottom: -13px !important;
+  right: -7px !important;
+  width: 26px !important;
+  height: 26px !important;
+  background: url('https://files.catbox.moe/v9hr2m.png') center / contain no-repeat !important;
+  image-rendering: pixelated !important;
+  -ms-interpolation-mode: nearest-neighbor !important;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  z-index: 99999 !important;
+  pointer-events: none !important;
+}`;
+    },
     _closeAllModals() {
       // 静态弹窗 + 可能的动态弹窗；元素不存在直接跳过（防止 null.classList 报错阻断流程）
-      ['cardModal','categoryModal','exportCatModal','exportFullModal','exportChoiceMenu','importModal','multiSendModal','patModal','stickerPicker','inputExpand','expandMenuSheet','avatarCropModal','choiceModal','choiceDetailModal']
+      ['cardModal','categoryModal','exportCatModal','exportFullModal','exportChoiceMenu','importModal','multiSendModal','patModal','stickerPicker','inputExpand','expandMenuSheet','avatarCropModal','choiceModal','choiceDetailModal','bubbleDesignModal']
         .forEach(id => this._hideModal(id));
     },
     _toast(msg, dur = 2000) {

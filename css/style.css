@@ -1502,3 +1502,88 @@ svg { display: block; }
   .send-btn { width: 32px; height: 32px; flex-shrink: 0; }
   .send-btn svg { width: 18px; height: 18px; }
 }
+
+/* ============================================================
+ * 气泡设计弹窗
+ * 左：效果预览（含"我"和"他"各一条气泡）
+ * 右：CSS 输入框 + 清空 / 应用 css 按钮
+ * ============================================================ */
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-bottom: 12px; margin-bottom: 0;
+  border-bottom: 1px solid var(--border);
+}
+.modal-header .modal-title { margin-bottom: 0; font-size: 17px; font-weight: 500; }
+.modal-close {
+  width: 32px; height: 32px; flex-shrink: 0;
+  border: none; background: transparent; cursor: pointer;
+  font-size: 22px; line-height: 1; color: var(--text-muted);
+  border-radius: var(--radius-full); transition: background 0.2s;
+}
+.modal-close:hover { background: var(--hover-bg); color: var(--text-primary); }
+
+.bubble-design-content {
+  max-width: 640px; max-height: 85vh;
+  display: flex; flex-direction: column; padding: 16px;
+  background: #FFFFFF; /* 不透明实色，覆盖半透明的 --surface-elevated */
+}
+[data-theme="dark"] .bubble-design-content {
+  background: #322C44;
+}
+/* 扩大此弹窗的容器宽度（覆盖 .modal 默认 380px；移动端由 480px 媒体查询接管） */
+#bubbleDesignModal { max-width: 680px; }
+.bubble-design-body {
+  display: flex; flex-direction: row; gap: 14px; flex: 1; min-height: 0;
+  margin-top: 14px;
+}
+/* 左：预览 */
+.bubble-preview {
+  flex: 0 0 220px;
+  display: flex; flex-direction: column; gap: 8px;
+  background: var(--hover-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+}
+.bubble-preview-chat {
+  flex: 1; display: flex; flex-direction: column; gap: 10px;
+  overflow-y: auto;
+}
+.bubble-preview-chat .msg-row { max-width: 100%; }
+.bubble-preview-chat .msg-bubble { font-size: 14px; padding: 8px 12px; }
+.bubble-preview-chat .avatar {
+  width: 28px; height: 28px; font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+}
+.bubble-preview-hint {
+  font-size: 11px; color: var(--text-muted); text-align: center; margin: 0;
+}
+/* 右：编辑器 */
+.bubble-editor {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.bubble-css-input {
+  flex: 1; width: 100%; min-height: 220px;
+  font-family: "Consolas", "Monaco", monospace;
+  font-size: 12px; line-height: 1.6;
+  resize: none; outline: none;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 10px;
+  background: #FFFFFF; /* 不透明实色 */
+  color: var(--text-primary);
+  white-space: pre; overflow: auto;
+}
+[data-theme="dark"] .bubble-css-input { background: #2D283C; }
+.bubble-editor-actions {
+  display: flex; gap: 10px; justify-content: flex-end;
+}
+.bubble-editor-actions button { min-width: 88px; }
+
+/* 移动端：上下堆叠（预览在上，编辑器在下） */
+@media (max-width: 480px) {
+  .bubble-design-content { max-width: calc(100vw - 24px) !important; padding: 12px; }
+  .bubble-design-body { flex-direction: column; gap: 10px; }
+  .bubble-preview { flex: 0 0 auto; }
+  .bubble-css-input { min-height: 160px; }
+}

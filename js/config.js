@@ -68,6 +68,8 @@ window.LoveChat = window.LoveChat || {};
     letterProactiveMinHours: 20, // 他主动写信间隔下限（小时）
     letterProactiveMaxHours: 48, // 他主动写信间隔上限（小时）
     letterProactiveContinuous: false, // 连续主动写信：开启后错过多次时全部补发，不只发一封
+    // v5 新增：自定义气泡 CSS（用户在"气泡设计"弹窗里编辑，写入 <style id="customBubbleCSS">）
+    customBubbleCSS: '',
   };
 
   /* ---- 预设字卡（首次启动自动载入） ----

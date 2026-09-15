@@ -51,6 +51,15 @@
       </div>
 
       <!-- 底部输入栏 -->
+      <!-- 引用预览条（长按消息→引用 后显示，可×取消） -->
+      <div class="quote-preview" id="quotePreview" hidden>
+        <div class="quote-preview-bar">
+          <span class="quote-preview-label">引用</span>
+          <span class="quote-preview-text"></span>
+        </div>
+        <button class="icon-btn quote-preview-close" id="quotePreviewClose" title="取消引用" aria-label="取消引用">×</button>
+      </div>
+
       <footer class="input-bar">
         <button class="icon-btn" id="expandMenuBtn" title="更多" aria-label="更多">
           <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M5 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm14 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-7 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
@@ -434,6 +443,12 @@
     <div class="popup-menu" id="importModeMenu" hidden>
       <button class="popup-item" data-mode="replace">覆盖（清空后替换）</button>
       <button class="popup-item" data-mode="merge">添加（在现有基础上追加）</button>
+    </div>
+
+    <!-- 消息长按操作浮窗：引用 / 删除（点空白处关闭） -->
+    <div class="popup-menu msg-action-menu" id="msgActionMenu" hidden>
+      <button class="popup-item" data-act="quote">引用</button>
+      <button class="popup-item" data-act="delete">删除</button>
     </div>
 
     <!-- ===== 按分类导出勾选弹窗（不点外部关闭） ===== -->

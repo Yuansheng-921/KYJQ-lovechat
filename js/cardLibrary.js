@@ -321,6 +321,23 @@ window.LoveChat = window.LoveChat || {};
             if (c.content) incoming.push({ content: c.content, category: cat, weight: c.weight });
           }
         }
+      } else if (Array.isArray(data.customReplyGroups)) {
+        // 兼容外部导出格式：{ customReplies:[...], customReplyGroups:[{name,items}] }
+        // items 元素可能是字符串或对象
+        for (const g of data.customReplyGroups) {
+          const cat = String(g.name || '未分类').trim() || '未分类';
+          for (const it of (Array.isArray(g.items) ? g.items : [])) {
+            const content = (typeof it === 'string') ? it : (it && (it.content || it.text));
+            if (content) incoming.push({ content, category: cat, weight: it && it.weight });
+          }
+        }
+        // customReplies：未分组的扁平数组，归入"未分类"
+        if (Array.isArray(data.customReplies)) {
+          for (const it of data.customReplies) {
+            const content = (typeof it === 'string') ? it : (it && (it.content || it.text));
+            if (content) incoming.push({ content, category: '未分类', weight: it && it.weight });
+          }
+        }
       } else if (Array.isArray(data)) {
         // 兼容 v1 纯数组
         for (const c of data) {

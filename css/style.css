@@ -726,6 +726,65 @@ svg { display: block; }
 #importModeMenu { min-width: 210px; background: #FFFFFF; }
 [data-theme="dark"] #importModeMenu { background: #322C44; }
 
+/* 消息长按操作浮窗（引用/删除）：不透明，水平排布 */
+.msg-action-menu {
+  min-width: 120px;
+  display: flex;
+  background: #FFFFFF;
+}
+.msg-action-menu[hidden] { display: none !important; }
+[data-theme="dark"] .msg-action-menu { background: #322C44; }
+.msg-action-menu .popup-item {
+  flex: 1; text-align: center; padding: 10px 12px;
+  font-size: 14px;
+}
+.msg-action-menu .popup-item[data-act="delete"] { color: #E53935; }
+
+/* 输入栏上方引用预览条（微信式） */
+.quote-preview {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  margin: 0 8px 0;
+  border-radius: 6px;
+  position: relative;
+  z-index: 5;
+  animation: quoteSlideIn 0.2s var(--ease-out);
+}
+@keyframes quoteSlideIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.quote-preview[hidden] { display: none !important; }
+.quote-preview-bar { flex: 1; min-width: 0; display: flex; gap: 6px; align-items: baseline; }
+.quote-preview-label { font-size: 12px; color: var(--accent); flex-shrink: 0; font-weight: 500; }
+.quote-preview-text {
+  font-size: 13px; color: var(--text-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.quote-preview-close {
+  width: 24px; height: 24px; flex-shrink: 0;
+  font-size: 18px; line-height: 1; color: var(--text-muted);
+  border-radius: 50%;
+}
+.quote-preview-close:hover { background: var(--hover-bg); color: var(--text-primary); }
+
+/* 消息气泡内引用块（被引用内容，带左侧竖线 + 底部分隔） */
+.msg-quote {
+  margin: 0 0 6px;
+  padding: 4px 8px;
+  border-left: 2px solid currentColor;
+  opacity: 0.7;
+  font-size: 13px;
+  line-height: 1.4;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.msg-quote-text { color: inherit; }
+.msg-quote-img { display: block; max-width: 60px; max-height: 60px; border-radius: 4px; }
+/* 引用块底部分隔（微信式：引用内容与正文之间有细线） */
+.msg-bubble:has(.msg-quote) { padding-top: 6px; }
+.msg-bubble > .msg-quote + *:not(.msg-quote) { }
+
 /* 表情面板 */
 .emoji-panel {
   position: absolute;

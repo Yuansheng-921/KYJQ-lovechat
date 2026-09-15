@@ -62,6 +62,14 @@ window.LoveChat = window.LoveChat || {};
     /* ---- 历史管理 ---- */
     getHistory() { return [...this.history]; },
     clearHistory() { this.history = []; Storage.set('history', []); },
+    /** 按 id 删除单条消息（仅删该条，不影响其他） */
+    deleteMessage(id) {
+      const idx = this.history.findIndex(m => m.id === id);
+      if (idx === -1) return false;
+      this.history.splice(idx, 1);
+      Storage.set('history', this.history);
+      return true;
+    },
     _addMsg(role, kind, content, extra = {}) {
       const msg = {
         id: 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
@@ -80,14 +88,15 @@ window.LoveChat = window.LoveChat || {};
      * 用户发送单条消息（手动）
      * @param {string} text
      * @param {object} cbs 回调集
+     * @param {object|null} quote 引用块 { content, role, kind }，参考微信引用
      */
-    sendUserMessage(text, cbs = {}) {
+    sendUserMessage(text, cbs = {}, quote = null) {
       const trimmed = (text || '').trim();
       if (!trimmed) return false;
       // 即使对方正在回复（_busy）也允许发送：消息立即显示+存储+累积到 _pending，
       // 由 _flushTurn 结尾衔接新回合（不启动合并计时器，避免和当前回合冲突）
-      // 1. 立即显示并记录用户消息
-      const userMsg = this._addMsg('me', 'text', trimmed);
+      // 1. 立即显示并记录用户消息（引用信息存入 extra，不进入 _pending 影响回复逻辑）
+      const userMsg = this._addMsg('me', 'text', trimmed, quote ? { quote } : {});
       cbs.onUserMessage && cbs.onUserMessage(userMsg);
       // 2. 累积到待处理回合
       this._pending.push({ text: trimmed, msg: userMsg });

@@ -130,6 +130,20 @@ window.LoveChat = window.LoveChat || {};
         this._doImport('group', btn.dataset.mode);
       });
       $('#importCancelBtn').addEventListener('click', () => { this._closeImportModeMenu(); this._closeModal('importModal'); });
+      // 消息长按操作浮窗（引用 / 删除）
+      $('#msgActionMenu').addEventListener('click', (ev) => {
+        const btn = ev.target.closest('.popup-item'); if (!btn) return;
+        const act = btn.dataset.act;
+        const tid = $('#msgActionMenu').dataset.targetId;
+        this._closeMsgMenu();
+        if (!tid) return;
+        const targetMsg = LC.ChatEngine.getHistory().find(m => m.id === tid);
+        if (!targetMsg) return;
+        if (act === 'quote') this._quoteMessage(targetMsg);
+        else if (act === 'delete') { if (confirm('删除这条消息？')) this._deleteMessage(tid); }
+      });
+      // 引用预览条关闭按钮
+      $('#quotePreviewClose').addEventListener('click', () => this._cancelQuote());
       // 聊天输入新按钮
       $('#expandMenuBtn').addEventListener('click', () => this._toggleExpandMenu());
       $('#patBtn').addEventListener('click', () => this._openPatModal());
@@ -263,6 +277,11 @@ window.LoveChat = window.LoveChat || {};
         this._closeImportModeMenu();
         return;
       }
+      // 消息长按操作浮窗（引用/删除）：点任何空白处关闭
+      const msgMenu = $('#msgActionMenu');
+      if (msgMenu && !msgMenu.hidden) {
+        this._handleMsgMenuOutsideClick(ev);
+      }
       // 扩展菜单底部弹窗
       const sheet = this.el.expandMenuSheet;
       if (sheet && !sheet.hidden && sheet.classList.contains('show')
@@ -342,9 +361,13 @@ window.LoveChat = window.LoveChat || {};
       const bubbleClass = (isSticker ? 'msg-bubble sticker-bubble' : 'msg-bubble') + alias;
       const content = isSticker ? `<img src="${esc(msg.content)}" alt="表情" onerror="this.style.background='rgba(231,84,128,.15)';this.alt='[图片加载失败]'">` : esc(msg.content);
       const timeStr = this._fmtTime(msg.time);
-      row.innerHTML = `<div class="avatar${isPhoto ? ' avatar-photo' : ''}">${avatarHTML}</div><div class="bubble-group"><div class="${bubbleClass}">${content}</div><div class="msg-time">${timeStr}</div></div>`;
+      // 引用块（微信式：气泡内顶部展示被引用内容，带分隔线）
+      const quoteHTML = msg.quote ? this._quoteBlockHTML(msg.quote) : '';
+      row.innerHTML = `<div class="avatar${isPhoto ? ' avatar-photo' : ''}">${avatarHTML}</div><div class="bubble-group"><div class="${bubbleClass}">${quoteHTML}${content}</div><div class="msg-time">${timeStr}</div></div>`;
       if (!animate) row.style.animation = 'none';
       this.el.messagesScroll.appendChild(row);
+      // 长按消息弹出操作菜单（引用 / 删除）—— 仅普通文字与表情包消息支持
+      this._attachLongPress(row, msg);
       this._updateMessagesLayout();
       if (animate) this._scrollBottom();
     },
@@ -357,6 +380,107 @@ window.LoveChat = window.LoveChat || {};
         return `<img src="${esc(avatar.url)}" alt="" style="object-position:-${Math.round(c.x*100)}% -${Math.round(c.y*100)}%;transform:scale(${1/c.w});">`;
       }
       return '';
+    },
+    /* ============ 消息长按操作：引用 / 删除 ============ */
+    /** 给消息行绑定 500ms 长按事件（移动端 touchstart + 桌面端 mousedown） */
+    _attachLongPress(row, msg) {
+      let timer = null;
+      const start = () => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          timer = null;
+          this._showMsgMenu(msg, row);
+          if (navigator.vibrate) try { navigator.vibrate(10); } catch (_) {}
+        }, 500);
+      };
+      const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+      row.addEventListener('touchstart', start, { passive: true });
+      row.addEventListener('touchend', cancel);
+      row.addEventListener('touchmove', cancel, { passive: true });
+      row.addEventListener('touchcancel', cancel);
+      row.addEventListener('mousedown', start);
+      row.addEventListener('mouseup', cancel);
+      row.addEventListener('mouseleave', cancel);
+      // 屏蔽移动端长按选中文字的默认菜单
+      row.addEventListener('contextmenu', (e) => e.preventDefault());
+    },
+    /** 显示长按操作浮窗（引用 / 删除），定位在消息行上方 */
+    _showMsgMenu(msg, row) {
+      const m = $('#msgActionMenu');
+      if (!m) return;
+      this._closeMsgMenu();
+      m.dataset.targetId = msg.id;
+      const r = row.getBoundingClientRect();
+      // 先显示才能取高度
+      m.hidden = false;
+      const menuH = m.offsetHeight || 40;
+      const menuW = m.offsetWidth || 120;
+      // 默认放在消息行上方，水平居中于消息；上方空间不足则放下方
+      let top = r.top - menuH - 6;
+      const placeBelow = top < 8;
+      if (placeBelow) top = r.bottom + 6;
+      let left = r.left + r.width / 2 - menuW / 2;
+      if (left < 8) left = 8;
+      if (left + menuW > window.innerWidth - 8) left = window.innerWidth - menuW - 8;
+      m.style.left = left + 'px';
+      m.style.top = top + 'px';
+      m.dataset.placed = '1';
+    },
+    _closeMsgMenu() {
+      const m = $('#msgActionMenu');
+      if (m) { m.hidden = true; m.removeAttribute('data-target-id'); m.removeAttribute('data-placed'); }
+    },
+    /** 点空白处关闭消息操作浮窗（在全局 click 处理里调用） */
+    _handleMsgMenuOutsideClick(ev) {
+      const m = $('#msgActionMenu');
+      if (!m || m.hidden) return false;
+      // 刚显示的这一次点击不处理（避免长按抬起立刻被关闭）
+      if (m.dataset.placed === '1') { m.removeAttribute('data-placed'); return true; }
+      if (!m.contains(ev.target)) { this._closeMsgMenu(); return true; }
+      return false;
+    },
+    /** 引用某条消息：把被引用信息存入 _pendingQuote，显示输入栏引用预览条 */
+    _quoteMessage(msg) {
+      this._pendingQuote = { content: msg.content, role: msg.role, kind: msg.kind || 'text' };
+      this._renderQuotePreview();
+      // 聚焦输入栏，让用户直接打字
+      try { this.el.messageInput.focus(); } catch (_) {}
+    },
+    _renderQuotePreview() {
+      const bar = $('#quotePreview');
+      if (!bar) return;
+      if (!this._pendingQuote) { bar.hidden = true; return; }
+      const q = this._pendingQuote;
+      const who = q.role === 'me' ? '我' : 'Ta';
+      const isSticker = q.kind === 'sticker';
+      const text = isSticker ? '[表情]' : (q.content.length > 40 ? q.content.slice(0, 40) + '…' : q.content);
+      bar.querySelector('.quote-preview-label').textContent = '引用 ' + who + '：';
+      bar.querySelector('.quote-preview-text').textContent = text;
+      bar.hidden = false;
+    },
+    _cancelQuote() {
+      this._pendingQuote = null;
+      this._renderQuotePreview();
+    },
+    /** 删除某条消息（仅删该条，其他不影响） */
+    _deleteMessage(id) {
+      LC.ChatEngine.deleteMessage(id);
+      const row = this.el.messagesScroll.querySelector(`.msg-row[data-id="${CSS.escape(id)}"]`);
+      if (row) row.remove();
+      // 如果没有消息了，恢复空状态
+      if (!this.el.messagesScroll.querySelector('.msg-row')) {
+        if (this.el.emptyState) this.el.emptyState.style.display = '';
+      }
+      this._updateMessagesLayout();
+      this._toast('已删除');
+    },
+    /** 生成消息气泡内的引用块 HTML */
+    _quoteBlockHTML(quote) {
+      const who = quote.role === 'me' ? '我' : 'Ta';
+      if (quote.kind === 'sticker') {
+        return `<div class="msg-quote"><img class="msg-quote-img" src="${esc(quote.content)}" alt="[表情]"><span class="msg-quote-text">${who}</span></div>`;
+      }
+      return `<div class="msg-quote"><span class="msg-quote-text">${esc(quote.content)}</span></div>`;
     },
     /** 渲染抉择 box 消息（用户发 + 对方回） */
     _renderChoiceMessage(msg, animate = true) {
@@ -435,8 +559,12 @@ window.LoveChat = window.LoveChat || {};
       const text = this.el.messageInput.value.trim();
       if (!text) return;
       this.el.messageInput.value = '';
+      // 取出引用（发送后清空，无论多条/单条模式）
+      const quote = this._pendingQuote || null;
+      this._pendingQuote = null;
+      this._renderQuotePreview();
       if (this._multiMode) {
-        // 多条模式下，输入加入暂存列表
+        // 多条模式下，输入加入暂存列表（多条发送不支持引用，忽略 quote）
         this._multiList.push(text);
         this._renderMultiList();
         if (!this.el.inputExpand.hidden) this.el.inputExpandText.value = '';
@@ -450,7 +578,7 @@ window.LoveChat = window.LoveChat || {};
         onTypingEnd: () => this.showTyping(false),
         onUnit: (m) => this._renderMessage(m),
         onEmpty: () => { this.showTyping(false); this._toast('字卡库还是空的～去添加一些回复吧'); setTimeout(() => this.openCardsPanel(), 800); },
-      });
+      }, quote);
       // 发送后自动关闭输入展开弹窗（仅在 inputExpand 打开 + 开关启用时）
       if (LC.config.autoCloseInputAfterSend && !this.el.inputExpand.hidden) {
         this._closeInputExpand(false);

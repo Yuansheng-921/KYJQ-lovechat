@@ -605,12 +605,9 @@
     <div class="modal" id="customColorModal" hidden>
       <div class="modal-content">
         <h3 class="modal-title">自定义颜色</h3>
-        <div class="custom-color-row">
-          <input type="color" id="customColorInput" class="custom-color-wheel" value="#E75480" aria-label="系统色盘">
-          <div class="custom-color-preview" id="customColorPreview" title="实时预览"></div>
-        </div>
+        <div class="custom-color-preview" id="customColorPreview" title="实时预览"></div>
         <p class="custom-color-hex" id="customColorHex">#E75480</p>
-        <!-- 手机端原生色盘常不可用，预设色块 + HEX 输入兜底 -->
+        <!-- 预设色块：点选即可，手机端原生色盘不可用时的主选方式 -->
         <div class="custom-color-presets" id="customColorPresets"></div>
         <label class="custom-color-hex-row">
           <span class="custom-color-hex-label">HEX</span>

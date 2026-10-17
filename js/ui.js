@@ -218,7 +218,6 @@ window.LoveChat = window.LoveChat || {};
       });
       // 主题色 - 自定义颜色按钮与弹窗（仅靠按钮关闭，不点空白关闭）
       $('#customColorBtn').addEventListener('click', () => this._openCustomColorModal());
-      $('#customColorInput').addEventListener('input', (ev) => this._onCustomColorInput(ev.target.value));
       $('#customColorHexInput').addEventListener('input', (ev) => this._onCustomColorHexInput(ev.target.value));
       $('#customColorCancelBtn').addEventListener('click', () => this._closeCustomColorModal());
       $('#customColorConfirmBtn').addEventListener('click', () => this._confirmCustomColor());
@@ -1857,11 +1856,9 @@ window.LoveChat = window.LoveChat || {};
       // 打开时初始化为当前主题色（便于在原色基础上微调）
       const cur = LC.config.accentColor || '#E75480';
       this._customColorDraft = cur;
-      const input = $('#customColorInput');
       const preview = $('#customColorPreview');
       const hex = $('#customColorHex');
       const hexInput = $('#customColorHexInput');
-      if (input) input.value = cur;
       if (preview) preview.style.background = cur;
       if (hex) hex.textContent = cur.toUpperCase();
       if (hexInput) hexInput.value = cur.toUpperCase();
@@ -1892,11 +1889,9 @@ window.LoveChat = window.LoveChat || {};
       this._customColorDraft = value;
       const preview = $('#customColorPreview');
       const hex = $('#customColorHex');
-      const input = $('#customColorInput');
       const hexInput = $('#customColorHexInput');
       if (preview) preview.style.background = value;
       if (hex) hex.textContent = value.toUpperCase();
-      if (input && input.value.toLowerCase() !== value.toLowerCase()) input.value = value;
       if (hexInput && hexInput.value.toLowerCase() !== value.toLowerCase()) hexInput.value = value.toUpperCase();
       // 同步预设 active
       const box = this.el.customColorPresets;
@@ -2551,9 +2546,7 @@ window.LoveChat = window.LoveChat || {};
     _fmtTime(ts) {
       const d = new Date(ts);
       const p = (n) => String(n).padStart(2, '0');
-      // 只显示 HH:MM（日期由 .date-separator 承担）；
-      // 之前带年月日导致 msg-time 过宽，把短内容气泡撑长
-      return `${p(d.getHours())}:${p(d.getMinutes())}`;
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
     },
     _fmtDate(ts) { const d = new Date(ts), t = new Date(), y = new Date(); y.setDate(y.getDate()-1);
       const same = (a,b) => a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();

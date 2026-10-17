@@ -780,6 +780,38 @@ body.ui-hidden #multiSendModal { display: none !important; }
   margin-bottom: 6px;
   letter-spacing: 0.5px;
 }
+/* 预设色块（手机端原生色盘不可用时的兜底） */
+.custom-color-presets {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  justify-content: center;
+  margin: 4px 0 12px;
+}
+.custom-color-preset {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease);
+  flex-shrink: 0;
+}
+.custom-color-preset:active { transform: scale(0.9); }
+.custom-color-preset.active {
+  border-color: var(--text-primary);
+  box-shadow: 0 0 0 2px var(--surface-elevated), 0 0 0 4px var(--accent);
+}
+/* HEX 文本输入行 */
+.custom-color-hex-row {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0 0 4px;
+}
+.custom-color-hex-label { font-size: 12px; color: var(--text-muted); font-weight: 600; letter-spacing: 1px; }
+.custom-color-hex-input {
+  flex: 1;
+  text-transform: uppercase;
+  font-size: 14px;
+  letter-spacing: 1px;
+}
 
 .emoji-picker { display: flex; gap: 8px; align-items: center; }
 .emoji-picker .field-input { width: 60px; text-align: center; }
@@ -821,6 +853,8 @@ body.ui-hidden #multiSendModal { display: none !important; }
   transition: all 0.3s var(--ease);
 }
 .modal.show { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%); }
+/* 防御：[hidden] 必须覆盖任何 display，避免弹窗"闪现/不消失" */
+.modal[hidden] { display: none !important; }
 .modal-title { font-size: 17px; font-weight: 500; margin-bottom: 16px; text-align: center; }
 .modal-actions { display: flex; gap: 10px; margin-top: 18px; }
 .modal-actions button { flex: 1; }

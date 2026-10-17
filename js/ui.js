@@ -72,6 +72,7 @@ window.LoveChat = window.LoveChat || {};
         choiceModeSingle: $('#choiceModeSingle'), choiceModeMulti: $('#choiceModeMulti'),
         choiceModeHint: $('#choiceModeHint'),
         choiceSendBtn: $('#choiceSendBtn'), choiceCancelBtn: $('#choiceCancelBtn'),
+        customColorPresets: $('#customColorPresets'), customColorHexInput: $('#customColorHexInput'),
         choiceDetailModal: $('#choiceDetailModal'), choiceDetailTitle: $('#choiceDetailTitle'),
         choiceDetailList: $('#choiceDetailList'), choiceDetailCloseBtn: $('#choiceDetailCloseBtn'),
         // 信件投递
@@ -218,6 +219,7 @@ window.LoveChat = window.LoveChat || {};
       // 主题色 - 自定义颜色按钮与弹窗（仅靠按钮关闭，不点空白关闭）
       $('#customColorBtn').addEventListener('click', () => this._openCustomColorModal());
       $('#customColorInput').addEventListener('input', (ev) => this._onCustomColorInput(ev.target.value));
+      $('#customColorHexInput').addEventListener('input', (ev) => this._onCustomColorHexInput(ev.target.value));
       $('#customColorCancelBtn').addEventListener('click', () => this._closeCustomColorModal());
       $('#customColorConfirmBtn').addEventListener('click', () => this._confirmCustomColor());
       // 回复条数
@@ -1858,22 +1860,66 @@ window.LoveChat = window.LoveChat || {};
       const input = $('#customColorInput');
       const preview = $('#customColorPreview');
       const hex = $('#customColorHex');
+      const hexInput = $('#customColorHexInput');
       if (input) input.value = cur;
       if (preview) preview.style.background = cur;
       if (hex) hex.textContent = cur.toUpperCase();
+      if (hexInput) hexInput.value = cur.toUpperCase();
+      this._renderCustomColorPresets(cur);
       this._showModal('customColorModal');
+    },
+    /* 渲染预设色块（手机端原生色盘常不可用时的兜底选择方式） */
+    _renderCustomColorPresets(currentColor) {
+      const presets = ['#E75480','#FF6B6B','#FF8E53','#FFB627','#F1C40F','#A3CB38',
+        '#42B86E','#2ECC71','#22C1C3','#3498DB','#3A86FF','#6C5CE7',
+        '#A66BCC','#9B59B6','#E056FD','#FD79A8','#C0392B','#636E72','#2D3436'];
+      const box = this.el.customColorPresets;
+      if (!box) return;
+      box.innerHTML = '';
+      presets.forEach(c => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'custom-color-preset' + (c.toLowerCase() === String(currentColor||'').toLowerCase() ? ' active' : '');
+        b.style.background = c;
+        b.dataset.color = c;
+        b.title = c.toUpperCase();
+        b.addEventListener('click', () => this._onCustomColorInput(c));
+        box.appendChild(b);
+      });
     },
     _onCustomColorInput(value) {
       if (!value) return;
       this._customColorDraft = value;
       const preview = $('#customColorPreview');
       const hex = $('#customColorHex');
+      const input = $('#customColorInput');
+      const hexInput = $('#customColorHexInput');
       if (preview) preview.style.background = value;
       if (hex) hex.textContent = value.toUpperCase();
+      if (input && input.value.toLowerCase() !== value.toLowerCase()) input.value = value;
+      if (hexInput && hexInput.value.toLowerCase() !== value.toLowerCase()) hexInput.value = value.toUpperCase();
+      // 同步预设 active
+      const box = this.el.customColorPresets;
+      if (box) box.querySelectorAll('.custom-color-preset').forEach(b => {
+        b.classList.toggle('active', b.dataset.color.toLowerCase() === value.toLowerCase());
+      });
+    },
+    /* HEX 文本输入：用户手输颜色，实时校验并预览 */
+    _onCustomColorHexInput(value) {
+      let v = (value || '').trim();
+      if (v && !v.startsWith('#')) v = '#' + v;
+      if (/^#[0-9A-Fa-f]{6}$/.test(v)) {
+        this._onCustomColorInput(v);
+      } else {
+        // 格式不全时只更新 draft（不强写回输入框，避免打字时光标跳尾）
+        this._customColorDraft = v;
+      }
     },
     _confirmCustomColor() {
       const color = this._customColorDraft || '#E75480';
-      LC.config.accentColor = color;
+      // 最终再校验一次，不合法回退默认色
+      const final = /^#[0-9A-Fa-f]{6}$/.test(color) ? color : '#E75480';
+      LC.config.accentColor = final;
       this.applyAccentColor();
       LC.Storage.set('config', LC.config);
       // 同步色盘 active 状态（自定义色不在预设里，所有 dot 都取消 active）
@@ -2505,7 +2551,9 @@ window.LoveChat = window.LoveChat || {};
     _fmtTime(ts) {
       const d = new Date(ts);
       const p = (n) => String(n).padStart(2, '0');
-      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+      // 只显示 HH:MM（日期由 .date-separator 承担）；
+      // 之前带年月日导致 msg-time 过宽，把短内容气泡撑长
+      return `${p(d.getHours())}:${p(d.getMinutes())}`;
     },
     _fmtDate(ts) { const d = new Date(ts), t = new Date(), y = new Date(); y.setDate(y.getDate()-1);
       const same = (a,b) => a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();

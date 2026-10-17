@@ -25,16 +25,24 @@
           <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M3 5h18v2H3V5zm0 6h18v2H3v-2zm0 6h18v2H3v-2z"/></svg>
         </button>
         <div class="partner-info">
-          <div class="avatar" id="partnerAvatar">🌸</div>
+          <div class="avatar avatar-default" id="partnerAvatar"></div>
           <div class="name-status">
             <span class="partner-name" id="partnerName">恋人</span>
             <span class="partner-status" id="partnerStatus">在线</span>
           </div>
         </div>
+        <button class="icon-btn ui-toggle-btn" id="uiHideBtn" title="隐藏界面" aria-label="隐藏界面">
+          <svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        </button>
         <button class="icon-btn settings-btn" id="openSettingsBtn" title="设置" aria-label="设置">
           <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.47.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
         </button>
       </header>
+
+      <!-- 隐藏界面后出现的"显示界面"按钮（屏幕右上角，实心圆） -->
+      <button class="ui-show-btn" id="uiShowBtn" hidden aria-label="显示界面" title="显示界面">
+        <svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="12" r="8.5" fill="currentColor"/></svg>
+      </button>
 
       <!-- 消息区 -->
       <div class="messages" id="messages">
@@ -45,10 +53,15 @@
         </div>
         <div class="messages-scroll" id="messagesScroll"></div>
         <div class="typing-indicator" id="typingIndicator" style="display:none;">
-          <div class="avatar avatar-sm" id="typingAvatar">🌸</div>
+          <div class="avatar avatar-sm avatar-default" id="typingAvatar"></div>
           <div class="typing-bubble"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
         </div>
       </div>
+      <!-- 回到底部指示器（用户向上翻超过半页时显示；对方有新消息时带数字角标） -->
+      <button class="scroll-bottom-btn" id="scrollBottomBtn" hidden aria-label="回到底部">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M5 8 L19 8 L12 19 Z"/></svg>
+        <span class="scroll-badge" id="scrollBottomBadge" hidden></span>
+      </button>
 
       <!-- 底部输入栏 -->
       <!-- 引用预览条（长按消息→引用 后显示，可×取消） -->
@@ -65,10 +78,10 @@
           <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M5 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm14 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-7 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
         </button>
         <button class="icon-btn" id="patBtn" title="拍一拍" aria-label="拍一拍">
-          <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M9 11.75c-.69 0-1.25.56-1.25 1.25s.56 1.25 1.25 1.25 1.25-.56 1.25-1.25-.56-1.25-1.25-1.25zm6 0c-.69 0-1.25.56-1.25 1.25s.56 1.25 1.25 1.25 1.25-.56 1.25-1.25-.56-1.25-1.25-1.25z"/><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8 0-.29.02-.58.05-.86 2.36-1.05 4.23-2.98 5.21-5.28C10.65 8.86 13.18 11 16.3 11c.62 0 1.21-.08 1.78-.22C18.66 14.55 15.6 20 12 20z"/></svg>
+          <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zm-6-7c.28 0 .5-.22.5-.5V10a2.5 2.5 0 00-5 0v1.5c0 .28.22.5.5.5z"/></svg>
         </button>
         <button class="icon-btn" id="stickerBtn" title="表情包" aria-label="表情包">
-          <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zm-6-7c.28 0 .5-.22.5-.5V10a2.5 2.5 0 00-5 0v1.5c0 .28.22.5.5.5z"/></svg>
+          <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M9 11.75c-.69 0-1.25.56-1.25 1.25s.56 1.25 1.25 1.25 1.25-.56 1.25-1.25-.56-1.25-1.25-1.25zm6 0c-.69 0-1.25.56-1.25 1.25s.56 1.25 1.25 1.25 1.25-.56 1.25-1.25-.56-1.25-1.25-1.25z"/><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8 0-.29.02-.58.05-.86 2.36-1.05 4.23-2.98 5.21-5.28C10.65 8.86 13.18 11 16.3 11c.62 0 1.21-.08 1.78-.22C18.66 14.55 15.6 20 12 20z"/></svg>
         </button>
         <input type="text" id="messageInput" class="message-input" placeholder="说点什么……" autocomplete="off" maxlength="500">
         <button class="icon-btn" id="multiSendBtn" title="多条发送" aria-label="多条发送">
@@ -228,6 +241,7 @@
           <label class="field"><span class="field-label">主题色</span>
             <div class="color-picker" id="colorPicker"></div>
           </label>
+          <button class="ghost-btn sm custom-color-btn" id="customColorBtn" type="button">自定义颜色</button>
           <label class="field row-field"><span class="field-label">聊天字体颜色</span>
             <span class="field-hint" id="chatFontColorHint">跟随主题</span>
           </label>
@@ -236,7 +250,6 @@
             <div class="color-dot" data-color="#000000" title="黑色" style="background:#000;border:1px solid #444;"></div>
             <div class="color-dot" data-color="#ffffff" title="白色" style="background:#fff;border:1px solid #ddd;"></div>
             <div class="color-dot" data-color="#888888" title="灰色" style="background:#888;"></div>
-            <input type="color" id="setCustomFontColor" class="custom-color-input" value="#888888" title="自定义颜色">
           </div>
           <h3 class="settings-group-title">聊天背景</h3>
           <div class="bg-image-row">
@@ -256,6 +269,18 @@
           </label>
           <h3 class="settings-group-title">气泡</h3>
           <button class="ghost-btn" id="bubbleDesignBtn">气泡设计</button>
+          <h3 class="settings-group-title">拍一拍标志</h3>
+          <span class="field-hint">区分我发的与他发的拍一拍（显示在内容前）</span>
+          <div class="pat-mark-row">
+            <button class="pat-mark-pick" id="patMarkMeBtn" title="我发的拍一拍标志">
+              <span class="pat-mark-pick-label">我的</span>
+              <span class="pat-mark-pick-val" id="patMarkMeVal">☆</span>
+            </button>
+            <button class="pat-mark-pick" id="patMarkPartnerBtn" title="他发的拍一拍标志">
+              <span class="pat-mark-pick-label">他的</span>
+              <span class="pat-mark-pick-val" id="patMarkPartnerVal">★</span>
+            </button>
+          </div>
         </section>
         <!-- 对话体验 -->
         <section class="settings-pane" data-pane="chat" hidden>
@@ -314,9 +339,13 @@
             <input type="checkbox" id="setProactiveEnabled" class="field-toggle">
           </label>
           <label class="field row-field"><span class="field-label">主动发送间隔（分钟）</span>
-            <span class="field-hint">选择"发"后冷却</span>
-            <input type="number" id="setProactiveInterval" class="field-input tiny" min="1" max="1440" value="5">
+            <span class="field-hint" id="proactiveIntervalHint">5 ~ 15 分钟</span>
           </label>
+          <div class="range-row">
+            <input type="number" id="setProactiveIntervalMin" class="field-input tiny" min="1" max="1440" value="5">
+            <span class="range-dash">~</span>
+            <input type="number" id="setProactiveIntervalMax" class="field-input tiny" min="1" max="1440" value="15">
+          </div>
           <label class="field row-field"><span class="field-label">失败冷却（分钟）</span>
             <span class="field-hint">选择"不发"后冷却</span>
             <input type="number" id="setFailCooldown" class="field-input tiny" min="1" max="1440" value="3">
@@ -451,6 +480,14 @@
       <button class="popup-item" data-act="delete">删除</button>
     </div>
 
+    <!-- 拍一拍标志选择弹窗（居中，点遮罩关闭） -->
+    <div class="modal pat-mark-modal" id="patMarkMenu" hidden>
+      <div class="modal-content pat-mark-content">
+        <h3 class="modal-title" id="patMarkTitle">选择标志</h3>
+        <div class="pat-mark-grid" id="patMarkGrid"></div>
+      </div>
+    </div>
+
     <!-- ===== 按分类导出勾选弹窗（不点外部关闭） ===== -->
     <div class="modal" id="exportCatModal" hidden>
       <div class="modal-content modal-tall">
@@ -524,9 +561,17 @@
     <div class="modal" id="choiceModal" hidden>
       <div class="modal-content modal-tall choice-modal">
         <h3 class="modal-title">发起一个抉择</h3>
-        <p class="modal-hint">Ta 会在设定时间内随机回复你一个选项</p>
+        <p class="modal-hint">Ta 会在设定时间内随机回复选择结果</p>
         <div class="choice-scroll">
-          <label class="field"><span class="field-label">回复时间窗口（分钟）</span>
+          <div class="field">
+            <span class="field-label">回复模式</span>
+            <div class="choice-mode-row">
+              <button type="button" class="choice-mode-btn active" data-mode="single" id="choiceModeSingle">单选</button>
+              <button type="button" class="choice-mode-btn" data-mode="multi" id="choiceModeMulti">多选</button>
+            </div>
+            <p class="choice-mode-hint" id="choiceModeHint">单选：Ta 随机回复 1 个选项</p>
+          </div>
+          <label class="field"><span class="field-label">回复时间范围（分钟）</span>
             <input type="number" id="choiceMinutes" class="field-input" min="0.1" max="60" step="0.1" value="5">
           </label>
           <label class="field"><span class="field-label">问题</span>
@@ -552,6 +597,22 @@
         <div class="choice-detail-list" id="choiceDetailList"></div>
         <div class="modal-actions">
           <button class="primary-btn full" id="choiceDetailCloseBtn">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 主题色 - 自定义颜色弹窗（仅靠按钮关闭，不点空白关闭） ===== -->
+    <div class="modal" id="customColorModal" hidden>
+      <div class="modal-content">
+        <h3 class="modal-title">自定义颜色</h3>
+        <div class="custom-color-row">
+          <input type="color" id="customColorInput" class="custom-color-wheel" value="#E75480">
+          <div class="custom-color-preview" id="customColorPreview" title="实时预览"></div>
+        </div>
+        <p class="custom-color-hex" id="customColorHex">#E75480</p>
+        <div class="modal-actions">
+          <button class="ghost-btn" id="customColorCancelBtn">取消</button>
+          <button class="primary-btn" id="customColorConfirmBtn">确定</button>
         </div>
       </div>
     </div>

@@ -23,6 +23,19 @@ window.LoveChat = window.LoveChat || {};
     _multiSelMode: false,    // 字卡批量多选激活
     _multiSel: new Set(),    // 字卡批量多选已选 id 集合
     _statusTimeout: null,
+    /* 滚动状态（需求1）：
+     * _isAtBottom: 用户当前是否在底部附近（距底 ≤ 60px）
+     * _unreadCount: 对方已发送但用户未读的消息数（仅当用户不在底部时累计）
+     * _programmaticScroll: 程序触发的滚动期间为 true，避免 _updateScrollState 误判
+     * _scrollBtnVisible: 指示器是否在显示中
+     * _scrollFlagTimer / _scrollDebounce: 内部计时器
+     */
+    _isAtBottom: true,
+    _unreadCount: 0,
+    _programmaticScroll: false,
+    _scrollBtnVisible: false,
+    _scrollFlagTimer: null,
+    _scrollDebounce: null,
 
     /* ============ 初始化 ============ */
     init() {
@@ -56,6 +69,8 @@ window.LoveChat = window.LoveChat || {};
         choiceModal: $('#choiceModal'), choiceMinutes: $('#choiceMinutes'),
         choiceQuestion: $('#choiceQuestion'), choiceOptions: $('#choiceOptions'),
         choiceAddOptBtn: $('#choiceAddOptBtn'), choiceHint: $('#choiceHint'),
+        choiceModeSingle: $('#choiceModeSingle'), choiceModeMulti: $('#choiceModeMulti'),
+        choiceModeHint: $('#choiceModeHint'),
         choiceSendBtn: $('#choiceSendBtn'), choiceCancelBtn: $('#choiceCancelBtn'),
         choiceDetailModal: $('#choiceDetailModal'), choiceDetailTitle: $('#choiceDetailTitle'),
         choiceDetailList: $('#choiceDetailList'), choiceDetailCloseBtn: $('#choiceDetailCloseBtn'),
@@ -67,6 +82,8 @@ window.LoveChat = window.LoveChat || {};
         letterModal: $('#letterModal'), letterModalTitle: $('#letterModalTitle'),
         letterModalBody: $('#letterModalBody'), letterModalFooter: $('#letterModalFooter'),
         lettersBadge: $('#lettersBadge'),
+        // 隐藏/显示界面按钮
+        uiHideBtn: $('#uiHideBtn'), uiShowBtn: $('#uiShowBtn'),
       };
       this._bindEvents();
       this._renderSubTabs();
@@ -144,6 +161,18 @@ window.LoveChat = window.LoveChat || {};
       });
       // 引用预览条关闭按钮
       $('#quotePreviewClose').addEventListener('click', () => this._cancelQuote());
+      // 拍一拍标志选择（个性化面板：我的/他的）
+      $('#patMarkMeBtn').addEventListener('click', (ev) => this._openPatMarkMenu('me', ev.currentTarget));
+      $('#patMarkPartnerBtn').addEventListener('click', (ev) => this._openPatMarkMenu('partner', ev.currentTarget));
+      $('#patMarkGrid').addEventListener('click', (ev) => {
+        const opt = ev.target.closest('.pat-mark-opt'); if (!opt) return;
+        const sym = opt.dataset.mark;
+        const who = $('#patMarkMenu').dataset.who;
+        if (who === 'me') { LC.config.patMarkMe = sym; $('#patMarkMeVal').textContent = sym; }
+        else { LC.config.patMarkPartner = sym; $('#patMarkPartnerVal').textContent = sym; }
+        LC.Storage.set('config', LC.config);
+        this._closePatMarkMenu();
+      });
       // 聊天输入新按钮
       $('#expandMenuBtn').addEventListener('click', () => this._toggleExpandMenu());
       $('#patBtn').addEventListener('click', () => this._openPatModal());
@@ -186,9 +215,11 @@ window.LoveChat = window.LoveChat || {};
         if (!d) return;
         this._setChatFontColor(d.dataset.color || null);
       });
-      $('#setCustomFontColor').addEventListener('input', (ev) => {
-        this._setChatFontColor(ev.target.value);
-      });
+      // 主题色 - 自定义颜色按钮与弹窗（仅靠按钮关闭，不点空白关闭）
+      $('#customColorBtn').addEventListener('click', () => this._openCustomColorModal());
+      $('#customColorInput').addEventListener('input', (ev) => this._onCustomColorInput(ev.target.value));
+      $('#customColorCancelBtn').addEventListener('click', () => this._closeCustomColorModal());
+      $('#customColorConfirmBtn').addEventListener('click', () => this._confirmCustomColor());
       // 回复条数
       $('#setReplyMin').addEventListener('input', (ev) => this._onReplyCountChange());
       $('#setReplyMax').addEventListener('input', (ev) => this._onReplyCountChange());
@@ -207,7 +238,16 @@ window.LoveChat = window.LoveChat || {};
       $('#setStatusMax').addEventListener('input', () => this._onStatusDurChange());
       // 主动发消息
       $('#setProactiveEnabled').addEventListener('change', (ev) => { LC.config.proactiveEnabled = ev.target.checked; LC.Storage.set('config', LC.config); LC.ChatEngine.refreshProactive(); });
-      $('#setProactiveInterval').addEventListener('input', (ev) => { const v = Math.max(1, parseFloat(ev.target.value) || 5); LC.config.proactiveIntervalMin = v; LC.Storage.set('config', LC.config); LC.ChatEngine.refreshProactive(); });
+      const onProactiveRange = () => {
+        let mn = Math.max(1, parseFloat($('#setProactiveIntervalMin').value) || 5);
+        let mx = Math.max(mn, parseFloat($('#setProactiveIntervalMax').value) || (mn + 10));
+        LC.config.proactiveIntervalMin = mn; LC.config.proactiveIntervalMax = mx;
+        LC.Storage.set('config', LC.config);
+        $('#proactiveIntervalHint').textContent = `${mn} ~ ${mx} 分钟`;
+        LC.ChatEngine.refreshProactive();
+      };
+      $('#setProactiveIntervalMin').addEventListener('input', onProactiveRange);
+      $('#setProactiveIntervalMax').addEventListener('input', onProactiveRange);
       $('#setFailCooldown').addEventListener('input', (ev) => { const v = Math.max(1, parseFloat(ev.target.value) || 3); LC.config.failCooldownMin = v; LC.Storage.set('config', LC.config); LC.ChatEngine.refreshProactive(); });
       // 发送后自动关闭输入框
       $('#setAutoCloseInput').addEventListener('change', (ev) => { LC.config.autoCloseInputAfterSend = ev.target.checked; LC.Storage.set('config', LC.config); });
@@ -246,6 +286,9 @@ window.LoveChat = window.LoveChat || {};
       $('#choiceSendBtn').addEventListener('click', () => this._sendChoice());
       $('#choiceAddOptBtn').addEventListener('click', () => this._addChoiceOption());
       $('#choiceQuestion').addEventListener('input', () => this._updateChoiceSendBtn());
+      // 抉择模式：单选 / 多选 切换
+      $('#choiceModeSingle').addEventListener('click', () => this._setChoiceMode('single'));
+      $('#choiceModeMulti').addEventListener('click', () => this._setChoiceMode('multi'));
       // 抉择详情
       $('#choiceDetailCloseBtn').addEventListener('click', () => this._closeModal('choiceDetailModal'));
       $('#clearChatBtn').addEventListener('click', () => this._onClearChat());
@@ -259,6 +302,26 @@ window.LoveChat = window.LoveChat || {};
       this._renderPatQuick();
       // 点击弹窗外区域关闭（针对无关闭按钮的浮层：扩展菜单 / 输入展开 / 表情包选择器）
       document.addEventListener('click', (ev) => this._onOutsideClick(ev), true);
+      // 消息区滚动监听 + 回到底部指示器点击（需求1）
+      e.messages.addEventListener('scroll', () => {
+        // 防抖：连续滚动时只在停下后处理（避免高频更新）
+        clearTimeout(this._scrollDebounce);
+        this._scrollDebounce = setTimeout(() => this._updateScrollState(), 60);
+      }, { passive: true });
+      $('#scrollBottomBtn').addEventListener('click', () => this._onScrollBottomClick());
+      // 隐藏 / 显示 界面（只保留聊天记录，隐藏顶部条框/底部条框/回到底部按钮）
+      $('#uiHideBtn').addEventListener('click', () => this._setUIHidden(true));
+      $('#uiShowBtn').addEventListener('click', () => this._setUIHidden(false));
+    },
+    /* 隐藏/显示界面切换：隐藏时把顶/底/回到底部条框全部隐藏，左上角出现实心圆恢复按钮 */
+    _setUIHidden(hidden) {
+      document.body.classList.toggle('ui-hidden', hidden);
+      this.el.uiShowBtn.hidden = !hidden;
+      // 隐藏界面时同步隐藏回到底部指示器，避免它浮在消息上
+      if (hidden) {
+        this.el.scrollBottomBtn.hidden = true;
+        this.el.scrollBottomBtn.classList.remove('show');
+      }
     },
 
     /** 处理点击浮层外部时关闭（仅对无关闭按钮的浮层，提升体验） */
@@ -282,6 +345,9 @@ window.LoveChat = window.LoveChat || {};
       if (msgMenu && !msgMenu.hidden) {
         this._handleMsgMenuOutsideClick(ev);
       }
+      // 拍一拍标志弹窗：点任何空白处关闭
+      const patM = $('#patMarkMenu');
+      if (patM && !patM.hidden) { this._handlePatMarkOutsideClick(ev); }
       // 扩展菜单底部弹窗
       const sheet = this.el.expandMenuSheet;
       if (sheet && !sheet.hidden && sheet.classList.contains('show')
@@ -354,6 +420,7 @@ window.LoveChat = window.LoveChat || {};
       const av = msg.role === 'partner' ? LC.config.partner.avatar : LC.config.user.avatar;
       const isPhoto = av && typeof av === 'object';
       const avatarHTML = this._avatarHTML(av);
+      const avClass = isPhoto ? ' avatar-photo' : (av ? '' : ' avatar-default');
       const isSticker = msg.kind === 'sticker';
       // message-sent/message-received 为"气泡设计"自定义 CSS 的别名类名，用户可直接粘贴用这两个类名写的 CSS
       // 仅文字气泡加别名，表情包气泡不受自定义样式影响
@@ -363,17 +430,20 @@ window.LoveChat = window.LoveChat || {};
       const timeStr = this._fmtTime(msg.time);
       // 引用块（微信式：气泡内顶部展示被引用内容，带分隔线）
       const quoteHTML = msg.quote ? this._quoteBlockHTML(msg.quote) : '';
-      row.innerHTML = `<div class="avatar${isPhoto ? ' avatar-photo' : ''}">${avatarHTML}</div><div class="bubble-group"><div class="${bubbleClass}">${quoteHTML}${content}</div><div class="msg-time">${timeStr}</div></div>`;
+      row.innerHTML = `<div class="avatar${avClass}">${avatarHTML}</div><div class="bubble-group"><div class="${bubbleClass}">${quoteHTML}${content}</div><div class="msg-time">${timeStr}</div></div>`;
       if (!animate) row.style.animation = 'none';
       this.el.messagesScroll.appendChild(row);
       // 长按消息弹出操作菜单（引用 / 删除）—— 仅普通文字与表情包消息支持
       this._attachLongPress(row, msg);
       this._updateMessagesLayout();
-      if (animate) this._scrollBottom();
+      if (animate) this._maybeAutoScroll(msg.role);
     },
-    /** 渲染头像 HTML（支持 emoji 字符串 / {url,crop} 对象） */
+    /** 渲染头像 HTML（支持 emoji 字符串 / {url,crop} 对象 / 空=默认剪影） */
     _avatarHTML(avatar) {
-      if (!avatar) return '';
+      if (!avatar) {
+        // 默认头像：空白小人胸像剪影（参考抖音默认头像），白色人胸像 SVG
+        return `<svg class="avatar-default-svg" viewBox="0 0 24 24" width="100%" height="100%" preserveAspectRatio="xMidYMid slice"><path fill="#ffffff" d="M12 12.5c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v3h16v-3c0-2.66-5.33-4-8-4z"/></svg>`;
+      }
       if (typeof avatar === 'string') return esc(avatar);
       if (avatar && avatar.url) {
         const c = avatar.crop || { x: 0, y: 0, w: 1, h: 1 };
@@ -482,6 +552,32 @@ window.LoveChat = window.LoveChat || {};
       }
       return `<div class="msg-quote"><span class="msg-quote-text">${esc(quote.content)}</span></div>`;
     },
+    /* ============ 拍一拍标志选择弹窗（居中 modal） ============ */
+    _openPatMarkMenu(who, anchorBtn) {
+      const m = $('#patMarkMenu');
+      this._closePatMarkMenu();
+      // 填充符号选项
+      const grid = $('#patMarkGrid');
+      const cur = who === 'me' ? (LC.config.patMarkMe || '') : (LC.config.patMarkPartner || '');
+      grid.innerHTML = (LC.PAT_MARKS || []).map(sym =>
+        `<button class="pat-mark-opt${sym === cur ? ' active' : ''}" data-mark="${esc(sym)}">${esc(sym)}</button>`
+      ).join('');
+      m.dataset.who = who;
+      $('#patMarkTitle').textContent = who === 'me' ? '我的拍一拍标志' : '他的拍一拍标志';
+      this._showModal('patMarkMenu');
+      // 标记刚打开：跳过这一次点击（避免打开弹窗的点击立刻触发关闭）
+      m.dataset.placed = '1';
+    },
+    _closePatMarkMenu() { const m = $('#patMarkMenu'); if (m) m.removeAttribute('data-placed'); this._closeModal('patMarkMenu'); },
+    _handlePatMarkOutsideClick(ev) {
+      const m = $('#patMarkMenu');
+      if (!m || m.hidden || !m.classList.contains('show')) return;
+      // 刚打开的那次点击跳过
+      if (m.dataset.placed === '1') { m.removeAttribute('data-placed'); return; }
+      // 点弹窗内容不关闭
+      if (m.contains(ev.target)) return;
+      this._closePatMarkMenu();
+    },
     /** 渲染抉择 box 消息（用户发 + 对方回） */
     _renderChoiceMessage(msg, animate = true) {
       const row = document.createElement('div');
@@ -490,17 +586,59 @@ window.LoveChat = window.LoveChat || {};
       const av = msg.role === 'partner' ? LC.config.partner.avatar : LC.config.user.avatar;
       const isPhoto = av && typeof av === 'object';
       const avatarHTML = this._avatarHTML(av);
+      const avClass = isPhoto ? ' avatar-photo' : (av ? '' : ' avatar-default');
       const c = msg.content || {};
       const isReply = msg.role === 'partner';
-      const title = isReply ? `已完成「${c.question || ''}」的抉择` : `关于「${c.question || ''}」的抉择`;
+      // 拆为 前缀 + 问题内容 + 后缀 三段，方便"限4行时只在问题内容上省略"
+      const pre = isReply ? '已完成「' : '关于「';
+      const suf = '」的抉择';
+      const question = c.question || '';
       const timeStr = this._fmtTime(msg.time);
+      // 抉择模式标识：单选/多选（旧数据无 mode 视为单选）
+      const modeLabel = c.mode === 'multi' ? '多选' : '单选';
       // box 只显示标题, 不显示选项列表 (查看详情时再展示)
-      row.innerHTML = `<div class="avatar${isPhoto ? ' avatar-photo' : ''}">${avatarHTML}</div><div class="bubble-group"><div class="choice-bubble" data-id="${esc(msg.id)}"><div class="cb-title">${esc(title)}</div><div class="cb-foot">点击查看详情</div></div><div class="msg-time">${timeStr}</div></div>`;
+      row.innerHTML = `<div class="avatar${avClass}">${avatarHTML}</div><div class="bubble-group"><div class="choice-bubble" data-id="${esc(msg.id)}"><div class="cb-title"><span class="cb-pre">${esc(pre)}</span><span class="cb-q">${esc(question)}</span><span class="cb-suf">${esc(suf)}</span></div><div class="cb-foot"><span class="cb-mode">${esc(modeLabel)}</span><span class="cb-foot-hint">点击查看详情</span></div></div><div class="msg-time">${timeStr}</div></div>`;
       if (!animate) row.style.animation = 'none';
       this.el.messagesScroll.appendChild(row);
+      // 需求2：标题视觉最多 4 行（不含"点击查看详情"提示行），超出时只省略问题内容，保留模板前后缀
+      this._clampChoiceTitle(row.querySelector('.cb-title'), pre, question, suf, 4);
       // 点击 box 打开详情弹窗
       row.querySelector('.choice-bubble').addEventListener('click', () => this._openChoiceDetail(msg.id));
-      if (animate) this._scrollBottom();
+      if (animate) this._maybeAutoScroll(msg.role);
+    },
+    /* 需求2：抉择框标题限 maxLines 行（视觉行，按 scrollHeight vs lineHeight*maxLines 判定）
+     * 超出时通过二分查找截断问题内容（保留前缀 pre 与后缀 suf），并在截断处加 "…" */
+    _clampChoiceTitle(container, pre, question, suf, maxLines) {
+      if (!container) return;
+      // 模板结构：前缀 + 问题内容 + 后缀
+      const setHTML = (qText) => {
+        container.innerHTML = `<span class="cb-pre">${esc(pre)}</span><span class="cb-q">${esc(qText)}</span><span class="cb-suf">${esc(suf)}</span>`;
+      };
+      // 先用完整问题内容测量
+      setHTML(question);
+      const cs = getComputedStyle(container);
+      const lineHeight = parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) * 1.5) || 21;
+      // 容差 1.5px，避免 sub-pixel 抖动
+      const maxHeight = lineHeight * maxLines + 1.5;
+      if (container.scrollHeight <= maxHeight) return; // 完整放得下，无需截断
+      if (!question) return;
+      // 检查截断后是否放得下：返回给定长度下"前缀 + sliced + '…' + 后缀"是否 fit
+      const tryLen = (len) => {
+        const t = question.slice(0, len);
+        const q = len < question.length ? (t + '…') : t;
+        setHTML(q);
+        return container.scrollHeight <= maxHeight;
+      };
+      // 二分查找最大可显示长度（前提：len=0 时一定能放下省略号+模板）
+      if (!tryLen(0)) { tryLen(0); return; } // 极端情况：连省略号都放不下
+      let lo = 0, hi = question.length, result = 0;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (tryLen(mid)) { result = mid; lo = mid + 1; }
+        else hi = mid - 1;
+      }
+      // 应用最终结果（重新设置一次确保状态正确）
+      tryLen(result);
     },
     /** 渲染信封样式消息（信件发送到聊天记录时） */
     _renderLetterMessage(msg, animate = true) {
@@ -510,15 +648,16 @@ window.LoveChat = window.LoveChat || {};
       const av = msg.role === 'partner' ? LC.config.partner.avatar : LC.config.user.avatar;
       const isPhoto = av && typeof av === 'object';
       const avatarHTML = this._avatarHTML(av);
+      const avClass = isPhoto ? ' avatar-photo' : (av ? '' : ' avatar-default');
       const c = msg.content || {};
       const letterId = c.letterId;
       const timeStr = this._fmtTime(msg.time);
       const titleText = msg.role === 'me' ? '我寄出了一封信，记得查收' : 'Ta 寄来了一封信，记得查收';
-      row.innerHTML = `<div class="avatar${isPhoto ? ' avatar-photo' : ''}">${avatarHTML}</div><div class="bubble-group"><div class="letter-bubble" data-letter-id="${esc(letterId || '')}"><div class="lb-icon">✉️</div><div class="lb-text">${esc(titleText)}</div><div class="lb-foot">点击查看信件</div></div><div class="msg-time">${timeStr}</div></div>`;
+      row.innerHTML = `<div class="avatar${avClass}">${avatarHTML}</div><div class="bubble-group"><div class="letter-bubble" data-letter-id="${esc(letterId || '')}"><div class="lb-icon">✉️</div><div class="lb-text">${esc(titleText)}</div><div class="lb-foot">点击查看信件</div></div><div class="msg-time">${timeStr}</div></div>`;
       if (!animate) row.style.animation = 'none';
       this.el.messagesScroll.appendChild(row);
       row.querySelector('.letter-bubble').addEventListener('click', () => this._openLetterPreview(letterId));
-      if (animate) this._scrollBottom();
+      if (animate) this._maybeAutoScroll(msg.role);
     },
     _renderChoicePreview(options, chosenIndex) {
       const arr = options || [];
@@ -535,15 +674,102 @@ window.LoveChat = window.LoveChat || {};
       row.className = 'msg-row pat';
       row.dataset.id = msg.id;
       // 拍一拍作为系统消息样式字卡：直接显示字卡文字内容，不再拼成"X 拍了拍 Y"句子
-      row.innerHTML = `<div class="pat-msg">${esc(msg.content || '')}</div>`;
+      // 前缀标志区分我/他（用户在"个性化"里设置 patMarkMe / patMarkPartner）
+      const mark = msg.role === 'me' ? (LC.config.patMarkMe || '') : (LC.config.patMarkPartner || '');
+      const markHTML = mark ? `<span class="pat-mark">${esc(mark)}</span>` : '';
+      row.innerHTML = `<div class="pat-msg">${markHTML}${esc(msg.content || '')}</div>`;
       if (!animate) row.style.animation = 'none';
       this.el.messagesScroll.appendChild(row);
-      if (animate) this._scrollBottom();
+      if (animate) this._maybeAutoScroll(msg.role);
     },
     _scrollBottom(instant) {
       const el = this.el.messages;
       if (instant) el.scrollTop = el.scrollHeight;
       else requestAnimationFrame(() => el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }));
+    },
+    /* 程序触发的滚动到底部（设置 _programmaticScroll 标志以避免 _updateScrollState
+       在动画过程中误判为"用户向上翻"而显示指示器） */
+    _programmaticScrollBottom(instant = false) {
+      this._isAtBottom = true;
+      this._programmaticScroll = true;
+      this._scrollBottom(instant);
+      clearTimeout(this._scrollFlagTimer);
+      // smooth 动画约 300ms，留余量；instant 几乎立即完成
+      this._scrollFlagTimer = setTimeout(() => { this._programmaticScroll = false; }, instant ? 120 : 550);
+    },
+    /* 新消息渲染后调用：根据用户当前位置决定滚到底部或累计未读
+     * - 用户在底部：滚动到底部（带 programmatic 标志，避免误判）
+     * - 用户不在底部 + 对方消息：累计未读、显示指示器（不滚）
+     * - 用户不在底部 + 我自己的消息：保持不滚（避免打断阅读） */
+    _maybeAutoScroll(role) {
+      if (this._isAtBottom) {
+        this._programmaticScrollBottom(false);
+      } else if (role === 'partner') {
+        this._unreadCount = (this._unreadCount || 0) + 1;
+        this._showScrollToBottom(this._unreadCount);
+      }
+    },
+    /* 根据当前滚动位置更新状态 + 指示器显隐
+     * 触发指示器显示的阈值：距离底部 > 容器可视高度的一半（"翻半页"以上） */
+    _updateScrollState() {
+      const el = this.el.messages;
+      if (!el) return;
+      // 程序滚动期间：保持"在底部"状态，不更新指示器
+      if (this._programmaticScroll) {
+        this._isAtBottom = true;
+        return;
+      }
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+      const NEAR_BOTTOM = 60;            // 距底 60px 内算"已在底部"
+      const SHOW_THRESHOLD = el.clientHeight * 0.5; // 超过半页距离才显示指示器
+      const wasAtBottom = this._isAtBottom;
+      this._isAtBottom = distance < NEAR_BOTTOM;
+      if (this._isAtBottom) {
+        // 已在底部：清零未读、隐藏指示器
+        if (this._unreadCount > 0 || this._scrollBtnVisible) {
+          this._unreadCount = 0;
+          this._hideScrollToBottom();
+        }
+      } else if (distance > SHOW_THRESHOLD) {
+        // 离底部够远：显示指示器（带未读数，可能为 0）
+        this._showScrollToBottom(this._unreadCount);
+      } else if (this._scrollBtnVisible) {
+        // 中间区域（半页内但不在底部）：隐藏指示器
+        this._hideScrollToBottom();
+      }
+    },
+    _showScrollToBottom(count) {
+      const btn = $('#scrollBottomBtn');
+      if (!btn) return;
+      const badge = $('#scrollBottomBadge');
+      btn.hidden = false;
+      // 触发回流后加 show 类，让过渡动画生效
+      void btn.offsetWidth;
+      btn.classList.add('show');
+      if (badge) {
+        if (count && count > 0) {
+          badge.textContent = String(count);
+          badge.hidden = false;
+        } else {
+          badge.hidden = true;
+        }
+      }
+      this._scrollBtnVisible = true;
+    },
+    _hideScrollToBottom() {
+      const btn = $('#scrollBottomBtn');
+      if (!btn) { this._scrollBtnVisible = false; return; }
+      btn.classList.remove('show');
+      btn.hidden = true;
+      const badge = $('#scrollBottomBadge');
+      if (badge) badge.hidden = true;
+      this._scrollBtnVisible = false;
+    },
+    _onScrollBottomClick() {
+      // 立即跳到底部（不用 smooth，避免中间态触发指示器闪现）
+      this._programmaticScrollBottom(true);
+      this._unreadCount = 0;
+      this._hideScrollToBottom();
     },
     showTyping(show) {
       this.el.typingIndicator.style.display = show ? 'flex' : 'none';
@@ -551,7 +777,8 @@ window.LoveChat = window.LoveChat || {};
       this.el.typingAvatar.innerHTML = this._avatarHTML(pav);
       this.el.typingAvatar.classList.toggle('avatar-photo', !!(pav && typeof pav === 'object'));
       this.el.partnerStatus.textContent = show ? '正在输入…' : (LC.CardLibrary.getStatus()?.content || '在线');
-      if (show) this._scrollBottom();
+      // 需求1：typing 不再强制拉回底部；仅当用户已在底部附近时才滚到底部显示输入指示
+      if (show && this._isAtBottom) this._programmaticScrollBottom(false);
     },
 
     /* ============ 发送逻辑 ============ */
@@ -1485,7 +1712,11 @@ window.LoveChat = window.LoveChat || {};
       $('#statusHint').textContent = `${sMin} ~ ${sMax} 分钟`;
       // 主动发消息
       $('#setProactiveEnabled').checked = !!LC.config.proactiveEnabled;
-      $('#setProactiveInterval').value = LC.config.proactiveIntervalMin || 5;
+      const pMin = LC.config.proactiveIntervalMin || 5;
+      const pMax = LC.config.proactiveIntervalMax || (pMin + 10);
+      $('#setProactiveIntervalMin').value = pMin;
+      $('#setProactiveIntervalMax').value = pMax;
+      $('#proactiveIntervalHint').textContent = `${pMin} ~ ${pMax} 分钟`;
       $('#setFailCooldown').value = LC.config.failCooldownMin || 3;
       // 输入体验
       $('#setAutoCloseInput').checked = !!LC.config.autoCloseInputAfterSend;
@@ -1502,6 +1733,9 @@ window.LoveChat = window.LoveChat || {};
       $('#letterProactiveHint').textContent = `${LC.config.letterProactiveMinHours ?? 20} ~ ${LC.config.letterProactiveMaxHours ?? 48} 小时`;
       // 背景图
       this._renderBgPreview();
+      // 拍一拍标志当前值
+      $('#patMarkMeVal').textContent = LC.config.patMarkMe || '';
+      $('#patMarkPartnerVal').textContent = LC.config.patMarkPartner || '';
       // 自定义气泡 CSS（应用已保存的样式）
       try { this._applyBubbleCSSFromConfig(); } catch(e) { console.warn('气泡CSS加载失败', e); }
       $('#setReplyMin').value = LC.config.replyCountMin; $('#setReplyMax').value = LC.config.replyCountMax;
@@ -1608,21 +1842,59 @@ window.LoveChat = window.LoveChat || {};
       p.querySelectorAll('.color-dot').forEach(d => {
         d.classList.toggle('active', d.dataset.color === cur);
       });
-      const custom = $('#setCustomFontColor');
-      if (custom && cur) custom.value = cur;
       $('#chatFontColorHint').textContent = cur ? cur.toUpperCase() : '跟随主题';
     },
     _lighten(hex, p) { const n = parseInt(hex.replace('#',''),16); const r = Math.min(255,((n>>16)&255)+p), g = Math.min(255,((n>>8)&255)+p), b = Math.min(255,(n&255)+p); return '#'+((r<<16)|(g<<8)|b).toString(16).padStart(6,'0'); },
 
+    /* ============ 主题色 - 自定义颜色弹窗（仅靠按钮关闭） ============
+     * 注意：此弹窗有"取消"按钮，不绑定外部点击关闭，避免"闪现消失"bug
+     * 状态：_customColorDraft 存储当前正在挑选的颜色（未点确定前不生效）
+     */
+    _customColorDraft: '#E75480',
+    _openCustomColorModal() {
+      // 打开时初始化为当前主题色（便于在原色基础上微调）
+      const cur = LC.config.accentColor || '#E75480';
+      this._customColorDraft = cur;
+      const input = $('#customColorInput');
+      const preview = $('#customColorPreview');
+      const hex = $('#customColorHex');
+      if (input) input.value = cur;
+      if (preview) preview.style.background = cur;
+      if (hex) hex.textContent = cur.toUpperCase();
+      this._showModal('customColorModal');
+    },
+    _onCustomColorInput(value) {
+      if (!value) return;
+      this._customColorDraft = value;
+      const preview = $('#customColorPreview');
+      const hex = $('#customColorHex');
+      if (preview) preview.style.background = value;
+      if (hex) hex.textContent = value.toUpperCase();
+    },
+    _confirmCustomColor() {
+      const color = this._customColorDraft || '#E75480';
+      LC.config.accentColor = color;
+      this.applyAccentColor();
+      LC.Storage.set('config', LC.config);
+      // 同步色盘 active 状态（自定义色不在预设里，所有 dot 都取消 active）
+      const p = $('#colorPicker');
+      if (p) p.querySelectorAll('.color-dot').forEach(x => x.classList.remove('active'));
+      this._closeCustomColorModal();
+      this._toast('已应用自定义颜色', 1200);
+    },
+    _closeCustomColorModal() { this._closeModal('customColorModal'); },
+
     /* ============ 头部 / 状态 ============ */
     renderHeader() {
       this.el.partnerName.textContent = LC.config.partner.name;
-      // 头像：emoji 字符串 或 {url, crop} 对象
+      // 头像：emoji 字符串 / {url, crop} 对象 / 空=默认剪影
       const av = LC.config.partner.avatar;
       this.el.partnerAvatar.innerHTML = this._avatarHTML(av);
       this.el.partnerAvatar.classList.toggle('avatar-photo', !!(av && typeof av === 'object'));
+      this.el.partnerAvatar.classList.toggle('avatar-default', !av);
       this.el.typingAvatar.innerHTML = this._avatarHTML(av);
       this.el.typingAvatar.classList.toggle('avatar-photo', !!(av && typeof av === 'object'));
+      this.el.typingAvatar.classList.toggle('avatar-default', !av);
     },
     updateStatus(text) { this.el.partnerStatus.textContent = text; },
 
@@ -1777,21 +2049,29 @@ window.LoveChat = window.LoveChat || {};
       img.src = this._avatarCropSource;
     },
     _resetAvatar(target) {
-      if (target === 'partner') LC.config.partner.avatar = '🌸';
-      else LC.config.user.avatar = '🌙';
+      // 恢复默认 = 空字符串 → 渲染为"空白小人胸像"默认头像（中性灰背景）
+      if (target === 'partner') LC.config.partner.avatar = '';
+      else LC.config.user.avatar = '';
       LC.Storage.set('config', LC.config);
       this._renderAvatarPreview();
       if (target === 'partner') this.renderHeader();
       this._toast('已恢复默认头像', 1500);
     },
     _renderAvatarPreview() {
-      const pAv = this._renderSingleAvatarPreview(LC.config.partner.avatar);
-      const uAv = this._renderSingleAvatarPreview(LC.config.user.avatar);
-      if (this.el.setPartnerAvatarPreview) this.el.setPartnerAvatarPreview.innerHTML = pAv;
-      if (this.el.setUserAvatarPreview) this.el.setUserAvatarPreview.innerHTML = uAv;
+      const pAv = LC.config.partner.avatar;
+      const uAv = LC.config.user.avatar;
+      if (this.el.setPartnerAvatarPreview) {
+        this.el.setPartnerAvatarPreview.innerHTML = this._renderSingleAvatarPreview(pAv);
+        this.el.setPartnerAvatarPreview.classList.toggle('avatar-default', !pAv);
+      }
+      if (this.el.setUserAvatarPreview) {
+        this.el.setUserAvatarPreview.innerHTML = this._renderSingleAvatarPreview(uAv);
+        this.el.setUserAvatarPreview.classList.toggle('avatar-default', !uAv);
+      }
     },
     _renderSingleAvatarPreview(av) {
-      if (!av || typeof av === 'string') return esc(av || '');
+      if (!av) return this._avatarHTML(av); // 空 → 默认剪影
+      if (typeof av === 'string') return esc(av);
       return `<img src="${esc(av.url)}" alt="">`;
     },
 
@@ -1876,9 +2156,20 @@ window.LoveChat = window.LoveChat || {};
     async _onResetAll() { if (confirm('⚠️ 确定重置全部数据？\n将删除所有字卡、聊天记录、设置，恢复初始状态！')) { await LC.Storage.clearAll(); location.reload(); } },
 
     /* ============ 抉择功能 ============ */
+    // 抉择模式：'single'（默认） | 'multi'
+    _choiceMode: 'single',
+    _setChoiceMode(mode) {
+      this._choiceMode = mode;
+      this.el.choiceModeSingle.classList.toggle('active', mode === 'single');
+      this.el.choiceModeMulti.classList.toggle('active', mode === 'multi');
+      this.el.choiceModeHint.textContent = mode === 'multi'
+        ? '多选：Ta 随机回复 1~全部 个选项'
+        : '单选：Ta 随机回复 1 个选项';
+    },
     _openChoiceModal() {
       this.el.choiceQuestion.value = '';
       this._renderChoiceOptions(['', '']);
+      this._setChoiceMode('single');
       this._updateChoiceSendBtn();
       this._showModal('choiceModal');
       setTimeout(() => this.el.choiceQuestion.focus(), 100);
@@ -1968,7 +2259,7 @@ window.LoveChat = window.LoveChat || {};
       if (!q || opts.length < 2) return;
       this._hideModal('choiceModal');
       this.el.emptyState.style.display = 'none';
-      LC.ChatEngine.sendChoice(q, opts, minutes, {
+      LC.ChatEngine.sendChoice(q, opts, minutes, this._choiceMode, {
         onUserMessage: (m) => this._renderMessage(m),
         onChoiceReply: (m) => {
           this.showTyping(false);
@@ -1982,11 +2273,20 @@ window.LoveChat = window.LoveChat || {};
       const msg = LC.ChatEngine.history.find(m => m.id === msgId);
       if (!msg || msg.kind !== 'choice') return;
       const c = msg.content || {};
-      const title = msg.role === 'partner' ? `已完成「${c.question}」的抉择` : `关于「${c.question}」的抉择`;
+      // 兼容旧数据 chosenIndex（单值）与新数据 chosenIndices（数组）
+      const chosen = Array.isArray(c.chosenIndices) && c.chosenIndices.length
+        ? c.chosenIndices.slice()
+        : (c.chosenIndex != null ? [c.chosenIndex] : []);
+      const chosenSet = new Set(chosen);
+      const modeLabel = c.mode === 'multi' ? '多选' : '单选';
+      const title = msg.role === 'partner'
+        ? `已完成「${c.question}」的抉择 · ${modeLabel}`
+        : `关于「${c.question}」的抉择 · ${modeLabel}`;
       this.el.choiceDetailTitle.textContent = title;
       this.el.choiceDetailList.innerHTML = (c.options || []).map((o, i) => {
-        const cls = c.chosenIndex === i ? 'cdl-item chosen' : 'cdl-item';
-        const tag = c.chosenIndex === i ? '<span class="cdl-tag">Ta 的选择</span>' : '';
+        const isChosen = chosenSet.has(i);
+        const cls = isChosen ? 'cdl-item chosen' : 'cdl-item';
+        const tag = isChosen ? '<span class="cdl-tag">Ta 的选择</span>' : '';
         return `<div class="${cls}"><span class="cdl-idx">${i+1}</span><span class="cdl-text">${esc(o)}</span>${tag}</div>`;
       }).join('');
       this._showModal('choiceDetailModal');
@@ -2089,8 +2389,8 @@ window.LoveChat = window.LoveChat || {};
       const any = this.el.cardsPanel.classList.contains('open') || this.el.settingsPanel.classList.contains('open');
       if (!any) { this.el.overlay.classList.remove('show'); setTimeout(() => { this.el.overlay.hidden = true; }, 300); }
     },
-    _showModal(id) { const m = $('#'+id); if (!m) return; m.hidden = false; requestAnimationFrame(() => m.classList.add('show')); },
-    _hideModal(id) { const m = $('#'+id); if (!m) return; m.classList.remove('show'); setTimeout(() => { m.hidden = true; }, 300); },
+    _showModal(id) { const m = $('#'+id); if (!m) return; if (m._hideTimer) { clearTimeout(m._hideTimer); m._hideTimer = null; } m.hidden = false; requestAnimationFrame(() => m.classList.add('show')); },
+    _hideModal(id) { const m = $('#'+id); if (!m) return; m.classList.remove('show'); if (m._hideTimer) clearTimeout(m._hideTimer); m._hideTimer = setTimeout(() => { m.hidden = true; m._hideTimer = null; }, 300); },
     _closeModal(id) { this._hideModal(id); },
 
     /* ---- 气泡设计 ---- */
@@ -2194,7 +2494,7 @@ window.LoveChat = window.LoveChat || {};
     },
     _closeAllModals() {
       // 静态弹窗 + 可能的动态弹窗；元素不存在直接跳过（防止 null.classList 报错阻断流程）
-      ['cardModal','categoryModal','exportCatModal','exportFullModal','exportChoiceMenu','importModal','importModeMenu','multiSendModal','patModal','stickerPicker','inputExpand','expandMenuSheet','avatarCropModal','choiceModal','choiceDetailModal','bubbleDesignModal']
+      ['cardModal','categoryModal','exportCatModal','exportFullModal','exportChoiceMenu','importModal','importModeMenu','multiSendModal','patModal','stickerPicker','inputExpand','expandMenuSheet','avatarCropModal','choiceModal','choiceDetailModal','bubbleDesignModal','customColorModal']
         .forEach(id => this._hideModal(id));
     },
     _toast(msg, dur = 2000) {
@@ -2202,7 +2502,11 @@ window.LoveChat = window.LoveChat || {};
       if (!t) { t = document.createElement('div'); t.className = 'lc-toast'; t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none;max-width:80%;text-align:center'; document.body.appendChild(t); }
       t.textContent = msg; t.style.opacity = '1'; clearTimeout(t._timer); t._timer = setTimeout(() => { t.style.opacity = '0'; }, dur);
     },
-    _fmtTime(ts) { const d = new Date(ts); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); },
+    _fmtTime(ts) {
+      const d = new Date(ts);
+      const p = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    },
     _fmtDate(ts) { const d = new Date(ts), t = new Date(), y = new Date(); y.setDate(y.getDate()-1);
       const same = (a,b) => a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
       if (same(d,t)) return '今天'; if (same(d,y)) return '昨天'; return `${d.getMonth()+1}月${d.getDate()}日`; },
@@ -2276,7 +2580,7 @@ window.LoveChat = window.LoveChat || {};
       if (!list.length) {
         this.el.letterEmpty.hidden = false;
         this.el.letterEmpty.textContent = favMode
-          ? '收藏夹空空如也。\n\n长按任意信件 → 点亮爱心即可收藏。\n再点爱心变灰 = 取消收藏。'
+          ? '收藏夹空空如也。\n\n长按任意信件 → 点亮爱心即可收藏。\n再点爱心变灰 = 取消收藏。\n点垃圾桶 = 删除该信。'
           : (tab === 'sent' ? '还没有寄出的信。\n点下方"写信"开始第一封吧。' : '还没有收到的信。\n静静等待 Ta 的来信…');
         return;
       }
@@ -2294,8 +2598,10 @@ window.LoveChat = window.LoveChat || {};
         const unreadDot = (l.type === 'received' && !l.read) ? '<div class="letter-item-unread-dot"></div>' : '';
         const preview = (l.content || '').slice(0, 80);
         const favIcon = `<svg class="letter-item-fav-icon${l.favorite ? ' active' : ''}" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>`;
-        item.innerHTML = `<div class="letter-item-date">${esc(dateStr)}${replyTag}</div><div class="letter-item-preview">${esc(preview)}</div>${unreadDot}${favIcon}`;
-        // 长按显示/隐藏爱心
+        // 删除图标（小垃圾桶）：与收藏图标一起，长按后显示，再次长按隐藏
+        const delIcon = `<svg class="letter-item-del-icon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>`;
+        item.innerHTML = `<div class="letter-item-date">${esc(dateStr)}${replyTag}</div><div class="letter-item-preview">${esc(preview)}</div>${unreadDot}${favIcon}${delIcon}`;
+        // 长按显示/隐藏 收藏与删除 两个图标
         let pressTimer = null;
         item.addEventListener('touchstart', () => {
           pressTimer = setTimeout(() => {
@@ -2322,6 +2628,21 @@ window.LoveChat = window.LoveChat || {};
             const fav = await LC.Letters.toggleFavorite(l.id);
             this._renderLetterList();
             this._toast(fav ? '已收藏' : '已取消收藏', 1200);
+          });
+        }
+        // 点击垃圾桶删除：先弹确认框，确认后才真正删除该条信件
+        const delEl = item.querySelector('.letter-item-del-icon');
+        if (delEl) {
+          delEl.addEventListener('click', async (ev) => {
+            ev.stopPropagation();
+            // 用原生 confirm 避免自定义弹窗的定时器竞态
+            if (!confirm('确定删除这封信吗？\n删除后不可恢复。')) return;
+            const ok = await LC.Letters.deleteLetter(l.id);
+            if (ok) {
+              this._renderLetterList();
+              this._updateLettersBadge();
+              this._toast('信件已删除', 1200);
+            }
           });
         }
         // 点击信件预览

@@ -90,6 +90,10 @@ window.LoveChat = window.LoveChat || {};
         }
         config.partner = { ...config.partner, ...(saved.partner || {}) };
         config.user = { ...config.user, ...(saved.user || {}) };
+        // v6 迁移：旧默认头像 🌸/🌙 → ''（启用新的"空白小人胸像"默认头像）
+        // 仅迁移等于旧默认值的头像，用户自定义的 emoji/图片头像不受影响
+        if (config.partner && config.partner.avatar === '🌸') config.partner.avatar = '';
+        if (config.user && config.user.avatar === '🌙') config.user.avatar = '';
         // 拷贝除 partner/user 外的所有顶层字段
         Object.keys(saved).forEach(k => {
           if (k !== 'partner' && k !== 'user' && k !== 'typingDelay') config[k] = saved[k];

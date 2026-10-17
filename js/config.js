@@ -28,8 +28,9 @@ window.LoveChat = window.LoveChat || {};
   /* ---- 默认配置 ---- */
   LC.DEFAULT_CONFIG = {
     // v3 字段：partner/user.avatar 支持字符串(emoji) 或 { url, crop } 对象
-    partner: { name: '恋人', avatar: '🌸' },
-    user: { name: '我', avatar: '🌙' },
+    // v6：默认 avatar 改为 ''（空），表示使用"空白小人胸像"默认头像（中性灰背景，不跟主题色）
+    partner: { name: '恋人', avatar: '' },
+    user: { name: '我', avatar: '' },
     theme: 'light',
     accentColor: '#E75480',
     // v4 起 typingDelay 改为区间随机（毫秒）
@@ -53,7 +54,8 @@ window.LoveChat = window.LoveChat || {};
     backgroundImage: null,    // { url, fit: 'cover'|'contain'|'tile'|'center' } | null
     // v4 新增：主动发消息
     proactiveEnabled: false,
-    proactiveIntervalMin: 5,  // 主动发送间隔（分钟）— 发送成功后冷却
+    proactiveIntervalMin: 5,  // 主动发送间隔下限（分钟）— 发送成功后冷却
+    proactiveIntervalMax: 15, // 主动发送间隔上限（分钟）— 与下限组成随机区间
     failCooldownMin: 3,       // 失败冷却（分钟）— 随机判定"不发"后冷却
     // v4 新增：输入体验
     autoCloseInputAfterSend: false, // 发送后自动关闭输入展开弹窗
@@ -70,6 +72,9 @@ window.LoveChat = window.LoveChat || {};
     letterProactiveContinuous: false, // 连续主动写信：开启后错过多次时全部补发，不只发一封
     // v5 新增：自定义气泡 CSS（用户在"气泡设计"弹窗里编辑，写入 <style id="customBubbleCSS">）
     customBubbleCSS: '',
+    // 拍一拍消息前缀标志（区分我/他），空字符串=无标志
+    patMarkMe: '☆',
+    patMarkPartner: '★',
   };
 
   /* ---- 预设字卡（首次启动自动载入） ----
@@ -115,15 +120,14 @@ window.LoveChat = window.LoveChat || {};
     ],
   };
 
-  /* ---- 主题色预设 ---- */
+  /* ---- 主题色预设 ----
+   * v6：删除 紫罗兰/樱红/摩卡 三个色（原位置 2/6/7），保留 5 个 + 自定义按钮
+   */
   LC.ACCENT_PRESETS = [
     { color: '#E75480', name: '玫瑰粉' },
-    { color: '#9D5BB5', name: '紫罗兰' },
     { color: '#FF8A65', name: '暖橘' },
     { color: '#26A69A', name: '青瓷' },
     { color: '#5C6BC0', name: '靛蓝' },
-    { color: '#EC407A', name: '樱红' },
-    { color: '#8D6E63', name: '摩卡' },
     { color: '#7E57C2', name: '夜紫' },
   ];
 
@@ -131,6 +135,9 @@ window.LoveChat = window.LoveChat || {};
 
   /* ---- 拍一拍快捷词（我发起拍一拍时可快选，作为系统消息字卡直接显示） ---- */
   LC.PAT_QUICK = ['拍拍肩膀', '摸摸头', '拍拍后背', '摸摸手背'];
+
+  /* ---- 拍一拍前缀标志可选符号（用户在"个性化"里选择，用于区分我/他） ---- */
+  LC.PAT_MARKS = ['', '△', '○', '☆', '♡', '♢', '★', '♥', '☼', '☾', '✿', '❉'];
 
   /* ---- 数据版本（用于备份/迁移/兼容性检测） ----
    * 升级数据结构时增加此版本号，app.js 会自动检测旧版数据并清空重置

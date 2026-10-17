@@ -368,10 +368,15 @@ window.LoveChat = window.LoveChat || {};
     _initProactive() {
       // 仅在启用时启动
       if (!LC.config.proactiveEnabled) { this._stopProactive(); return; }
-      const min = Math.max(1, LC.config.proactiveIntervalMin || 5);
-      const delay = min * 60 * 1000;
+      const delay = this._proactiveDelay();
       if (this._proactiveTimer) clearTimeout(this._proactiveTimer);
       this._proactiveTimer = setTimeout(() => this._proactiveRoll(), delay);
+    },
+    /** 随机一个主动发送间隔（毫秒），区间 [proactiveIntervalMin, proactiveIntervalMax] 分钟 */
+    _proactiveDelay() {
+      const lo = Math.max(1, LC.config.proactiveIntervalMin || 5);
+      const hi = Math.max(lo, LC.config.proactiveIntervalMax || lo);
+      return (lo + Math.random() * (hi - lo)) * 60 * 1000;
     },
     _stopProactive() {
       if (this._proactiveTimer) { clearTimeout(this._proactiveTimer); this._proactiveTimer = null; }
@@ -402,9 +407,8 @@ window.LoveChat = window.LoveChat || {};
       }
       // 直接构造一轮回复（不走 _flushTurn，因为不需要合并窗口）
       this._doProactiveTurn();
-      // 进入主动间隔冷却
-      const min = Math.max(1, LC.config.proactiveIntervalMin || 5);
-      this._proactiveTimer = setTimeout(() => this._proactiveRoll(), min * 60 * 1000);
+      // 进入主动间隔冷却（区间随机）
+      this._proactiveTimer = setTimeout(() => this._proactiveRoll(), this._proactiveDelay());
     },
     _proactiveFailCooldown() {
       const min = Math.max(1, LC.config.failCooldownMin || 3);
@@ -436,7 +440,9 @@ window.LoveChat = window.LoveChat || {};
 
     /* ---- 抉择功能 ----
      * 用户发送一个"问题 + 多个选项"，AI 在设定的时间窗口内随机时刻回复选择结果
-     * 数据结构：{ role, kind: 'choice', content: { question, options, chosenIndex? } }
+     * 数据结构：{ role, kind: 'choice', content: { question, options, mode, chosenIndices? } }
+     *   mode: 'single'（默认，选 1 个） | 'multi'（随机选 1~全部 个）
+     *   兼容旧数据：旧消息无 mode 字段视为 'single'，chosenIndex（单值）仍可读
      */
     _choiceTimers: [],     // 每个待处理抉择的 setTimeout 句柄
 
@@ -445,23 +451,41 @@ window.LoveChat = window.LoveChat || {};
      * @param {string} question
      * @param {string[]} options
      * @param {number} minutes - 时间窗口（分钟）
+     * @param {string} mode - 'single' | 'multi'
      * @param {object} cbs - { onUserMessage, onChoiceReply }
      */
-    sendChoice(question, options, minutes, cbs = {}) {
+    sendChoice(question, options, minutes, mode, cbs = {}) {
       const q = (question || '').trim();
       const opts = (options || []).map(o => (o || '').trim()).filter(Boolean);
       const win = Math.max(0.1, Number(minutes) || 1); // 至少 ~6 秒
+      const replyMode = mode === 'multi' ? 'multi' : 'single';
       if (!q || opts.length < 2) return false;
-      // 1. 立即写入我方的抉择消息
-      const msg = this._addMsg('me', 'choice', { question: q, options: opts, chosenIndex: undefined });
+      // 1. 立即写入我方的抉择消息（mode 标记，便于渲染时显示单选/多选）
+      const msg = this._addMsg('me', 'choice', { question: q, options: opts, mode: replyMode, chosenIndices: undefined });
       cbs.onUserMessage && cbs.onUserMessage(msg);
       // 2. 在 [0, win*60s] 之间随机一个延迟后回复
       const delayMs = win > 0 ? Math.random() * win * 60 * 1000 : 0;
       const timer = setTimeout(() => {
         // 从列表中移除
         this._choiceTimers = this._choiceTimers.filter(t => t !== timer);
-        const idx = Math.floor(Math.random() * opts.length);
-        const reply = this._addMsg('partner', 'choice', { question: q, options: opts, chosenIndex: idx });
+        // 计算 Ta 的选择
+        let chosenIndices;
+        if (replyMode === 'multi') {
+          // 多选：随机选 1~N 个（至少 1 个，最多全部）
+          const count = 1 + Math.floor(Math.random() * opts.length);
+          const indices = opts.map((_, i) => i);
+          // Fisher-Yates 洗牌
+          for (let i = indices.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [indices[i], indices[j]] = [indices[j], indices[i]];
+          }
+          chosenIndices = indices.slice(0, count).sort((a, b) => a - b);
+        } else {
+          // 单选：随机 1 个
+          const idx = Math.floor(Math.random() * opts.length);
+          chosenIndices = [idx];
+        }
+        const reply = this._addMsg('partner', 'choice', { question: q, options: opts, mode: replyMode, chosenIndices });
         cbs.onChoiceReply && cbs.onChoiceReply(reply);
       }, delayMs);
       this._choiceTimers.push(timer);

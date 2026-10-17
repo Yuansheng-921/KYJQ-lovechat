@@ -17,6 +17,8 @@
 
 /* ===== 1. 设计令牌 ===== */
 :root {
+  /* 禁止浏览器跟随系统暗色自动反转颜色（网站暗色由 [data-theme="dark"] 控制） */
+  color-scheme: light;
   /* 浅色主题（默认） */
   --bg-gradient: linear-gradient(175deg, #FFF5F7 0%, #FFE8EE 35%, #F3E6F0 75%, #EDE0F0 100%);
   --bg-solid: #FFF5F7;
@@ -62,6 +64,7 @@
 }
 
 [data-theme="dark"] {
+  color-scheme: dark;
   --bg-gradient: linear-gradient(175deg, #1A1A2E 0%, #1E1A35 40%, #221830 75%, #1A1228 100%);
   --bg-solid: #1A1A2E;
   --surface: rgba(45, 40, 60, 0.80);
@@ -119,10 +122,15 @@ svg { display: block; }
   display: flex;
   flex-direction: column;
   height: 100dvh;
+  width: 100%;
   max-width: var(--max-w);
   margin: 0 auto;
   background: var(--bg-gradient);
   overflow: hidden;
+}
+@media (max-width: 599px) {
+  /* 手机端：#app 占满屏宽，不留右侧粉色发光边带；去掉桌面式阴影 */
+  #app { max-width: 100%; box-shadow: none; }
 }
 @media (min-width: 600px) {
   #app { box-shadow: var(--shadow-lg); }
@@ -184,6 +192,18 @@ svg { display: block; }
   line-height: 1;
 }
 .avatar-sm { width: 28px; height: 28px; font-size: 16px; }
+/* 默认头像（未设置时）：中性灰背景 + 白色小人胸像剪影，不跟主题色走 */
+.avatar.avatar-default {
+  background: #B6B6BE;
+  overflow: hidden;
+}
+.avatar.avatar-default .avatar-default-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* 消息行内小头像默认态也走中性灰 */
+.msg-row .avatar.avatar-default { background: #B6B6BE; }
 .name-status { display: flex; flex-direction: column; align-items: center; line-height: 1.3; }
 .partner-name { font-size: 16px; font-weight: 500; color: var(--text-primary); }
 .partner-status { font-size: 11px; color: var(--accent); }
@@ -230,6 +250,76 @@ svg { display: block; }
   gap: 6px;
   pointer-events: none;
 }
+
+/* 回到底部指示器（聊天区右下角浮标） */
+.scroll-bottom-btn {
+  position: absolute;
+  right: 14px;
+  bottom: calc(var(--input-h) + 14px);
+  width: 38px; height: 38px;
+  border-radius: 50%;
+  background: var(--surface-elevated);
+  color: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  z-index: 8;
+  opacity: 0;
+  transform: translateY(8px) scale(0.85);
+  pointer-events: none;
+  transition: opacity 0.22s var(--ease), transform 0.22s var(--ease);
+}
+.scroll-bottom-btn.show {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+.scroll-bottom-btn:active { transform: scale(0.92); }
+.scroll-bottom-btn[hidden] { display: none !important; }
+.scroll-badge {
+  position: absolute;
+  top: -4px; right: -4px;
+  min-width: 17px; height: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  border: 2px solid var(--surface-solid);
+  box-sizing: content-box;
+}
+.scroll-badge[hidden] { display: none !important; }
+
+/* ===== 隐藏界面模式 =====
+   点 chat-header 设置按钮左侧的空心圆 → 隐藏顶/底/回到底部条框，只留聊天记录；
+   隐藏后屏幕右上角出现实心圆恢复按钮 */
+.ui-show-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 50;
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: var(--surface-elevated);
+  color: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.18s var(--ease);
+}
+.ui-show-btn:active { transform: scale(0.92); }
+.ui-show-btn[hidden] { display: none !important; }
+body.ui-hidden .chat-header,
+body.ui-hidden .input-bar,
+body.ui-hidden .scroll-bottom-btn,
+body.ui-hidden .quote-preview,
+body.ui-hidden #inputExpand,
+body.ui-hidden #multiSendModal { display: none !important; }
 .empty-icon { font-size: 48px; opacity: 0.7; animation: float 3s ease-in-out infinite; }
 .empty-state p { font-size: 16px; color: var(--text-secondary); font-weight: 400; }
 .empty-hint { font-size: 12px; color: var(--text-muted); }
@@ -658,6 +748,39 @@ svg { display: block; }
 .custom-color-input::-webkit-color-swatch-wrapper { padding: 0; }
 .custom-color-input::-webkit-color-swatch { border: 2px solid var(--border); border-radius: 50%; }
 
+/* 自定义颜色按钮（主题色下一行） */
+.custom-color-btn { margin-top: 4px; }
+
+/* 自定义颜色弹窗（色盘 + 实时预览 + 确定取消） */
+.custom-color-row { display: flex; align-items: center; justify-content: center; gap: 18px; margin: 8px 0 12px; }
+.custom-color-wheel {
+  width: 64px; height: 64px;
+  border: 2px solid var(--border-strong);
+  border-radius: 50%;
+  cursor: pointer;
+  background: none;
+  padding: 0;
+  overflow: hidden;
+}
+.custom-color-wheel::-webkit-color-swatch-wrapper { padding: 0; }
+.custom-color-wheel::-webkit-color-swatch { border: none; border-radius: 50%; }
+.custom-color-wheel::-moz-color-swatch { border: none; border-radius: 50%; }
+.custom-color-preview {
+  width: 44px; height: 44px;
+  border-radius: 12px;
+  border: 2px solid var(--border-strong);
+  background: #E75480;
+  box-shadow: var(--shadow-sm);
+  transition: background 0.1s;
+}
+.custom-color-hex {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  letter-spacing: 0.5px;
+}
+
 .emoji-picker { display: flex; gap: 8px; align-items: center; }
 .emoji-picker .field-input { width: 60px; text-align: center; }
 .emoji-quick { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -1028,7 +1151,7 @@ svg { display: block; }
 
 /* ---- 拍一拍 / 状态 卡列表（复用 card-item） ---- */
 
-/* ---- 拍一拍系统消息 ---- */
+/* ---- 拍一拍系统消息（无气泡，纯文字居中） ---- */
 .msg-row.pat {
   align-self: center;
   max-width: 90%;
@@ -1037,12 +1160,42 @@ svg { display: block; }
 .pat-msg {
   font-size: 12px;
   color: var(--chat-aux-color, var(--text-muted));
-  background: var(--surface);
-  padding: 4px 12px;
-  border-radius: var(--radius-full);
+  padding: 4px 8px;
   text-align: center;
   text-shadow: 0 1px 2px rgba(0,0,0,0.15);
+  /* 前缀标志：与内容之间留一点间距 */
+  white-space: pre-wrap;
 }
+.pat-mark { margin-right: 4px; font-size: 1em; }
+
+/* ---- 拍一拍标志选择器（个性化面板） ---- */
+.pat-mark-row { display: flex; gap: 10px; margin-top: 6px; }
+.pat-mark-pick {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 8px 6px; border-radius: var(--radius-sm);
+  background: var(--surface); border: 1px solid var(--border);
+  transition: all 0.2s var(--ease);
+}
+.pat-mark-pick:hover { border-color: var(--accent); background: rgba(var(--accent-rgb), 0.06); }
+.pat-mark-pick-label { font-size: 11px; color: var(--text-muted); }
+.pat-mark-pick-val { font-size: 20px; color: var(--text-primary); line-height: 1; min-height: 20px; }
+.pat-mark-pick-val:empty::before { content: '无'; font-size: 12px; color: var(--text-muted); }
+
+/* 拍一拍标志选项弹窗（居中 modal） */
+.pat-mark-modal[hidden] { display: none !important; }
+.pat-mark-content { max-width: 320px; padding: 16px; text-align: center; }
+.pat-mark-content .modal-title { margin-bottom: 12px; }
+.pat-mark-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.pat-mark-opt {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; aspect-ratio: 1; min-height: 34px; border-radius: 6px;
+  font-size: 18px; color: var(--text-primary);
+  background: transparent; transition: background 0.15s;
+}
+.pat-mark-opt:hover { background: rgba(var(--accent-rgb), 0.12); color: var(--accent); }
+.pat-mark-opt.active { background: rgba(var(--accent-rgb), 0.18); color: var(--accent); }
+.pat-mark-opt:empty::before { content: '无'; font-size: 11px; color: var(--text-muted); }
+@media (max-width: 360px) { .pat-mark-grid { grid-template-columns: repeat(4, 1fr); } }
 
 /* ---- 表情包消息气泡 ---- */
 .msg-bubble.sticker-bubble {
@@ -1289,6 +1442,10 @@ svg { display: block; }
 .letter-item.fav-active .letter-item-fav-icon { opacity: 1; }
 .letter-item.show-fav .letter-item-fav-icon { opacity: 0.8; }
 .letter-item-fav-icon.active { fill: #ff3b30; color: #ff3b30; }
+/* 删除图标（小垃圾桶）：紧挨收藏图标左侧，长按后显示，再次长按隐藏 */
+.letter-item-del-icon { position: absolute; right: 36px; bottom: 12px; width: 18px; height: 18px; opacity: 0; transition: opacity 0.2s; color: var(--text-muted); }
+.letter-item.show-fav .letter-item-del-icon { opacity: 0.8; }
+.letter-item-del-icon:active { color: #ff3b30; }
 
 .letter-empty { text-align: center; color: var(--text-muted); padding: 40px 20px; font-size: 13px; line-height: 1.8; }
 
@@ -1397,11 +1554,22 @@ svg { display: block; }
 .cb-foot {
   font-size: 11px;
   color: var(--chat-aux-color, var(--text-muted));
-  text-align: right;
   margin-top: 6px;
-  opacity: 0.7;
+  opacity: 0.9;
   text-shadow: 0 1px 2px rgba(0,0,0,0.15);
+  /* 左：单选/多选标识；右：点击查看详情提示 */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
+.cb-foot .cb-mode {
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.cb-foot .cb-foot-hint { text-align: right; opacity: 0.85; }
 /* 详情弹窗中显示的选项列表 */
 .choice-detail-list { display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow-y: auto; }
 
@@ -1411,6 +1579,26 @@ svg { display: block; }
   flex-direction: column;
   max-height: calc(100vh - 48px);
 }
+/* 抉择模式：单选 / 多选 切换按钮 */
+.choice-mode-row { display: flex; gap: 8px; margin-top: 4px; }
+.choice-mode-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-solid);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.18s var(--ease);
+}
+.choice-mode-btn.active {
+  background: var(--accent-gradient);
+  color: #fff;
+  border-color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+.choice-mode-hint { font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.5; }
 .choice-modal .choice-scroll {
   flex: 1;
   overflow-y: auto;

@@ -293,6 +293,22 @@ LC.Letters = {
     return l ? l.favorite : false;
   },
 
+  /** 删除单封信件（同时清理对应的待回复队列项；不级联删除已生成的回信） */
+  async deleteLetter(letterId) {
+    const idx = this.letters.findIndex(x => x.id === letterId);
+    if (idx === -1) return false;
+    this.letters.splice(idx, 1);
+    await LC.Storage.set('letters', this.letters);
+    // 若该信是"已寄出待回复"的原信，移除待回复项（避免后续生成无原信的回信）
+    const before = this._pendingReplies.length;
+    this._pendingReplies = this._pendingReplies.filter(p => p.replyToId !== letterId);
+    if (this._pendingReplies.length !== before) {
+      await LC.Storage.set('pendingReplies', this._pendingReplies);
+      this._scheduleTimers();
+    }
+    return true;
+  },
+
   /** 获取未读收到信数量（红点判断） */
   getUnreadCount() {
     return this.letters.filter(l => l.type === 'received' && !l.read).length;

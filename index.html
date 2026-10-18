@@ -154,6 +154,9 @@
         </button>
         <h2 id="panelTitle">回复库</h2>
         <div class="panel-actions">
+          <button class="icon-btn" id="globalDedupBtn" title="查重" aria-label="查重">
+            <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M6 7h12v2H6V7zm0 4h12v2H6v-2zm0 4h8v2H6v-2zM3 3h18v18H3V3z" opacity="0"/><path fill="currentColor" d="M4 6h16v2H4V6zm0 5h12v2H4v-2z M19 13l-1.41 1.41L19.17 16 15 11.83 16.41 10.42z"/></svg>
+          </button>
           <button class="icon-btn" id="exportBtn" title="导出" aria-label="导出">
             <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
           </button>
@@ -405,7 +408,8 @@
 
           <h3 class="settings-group-title">聊天记录</h3>
           <button class="ghost-btn full" id="exportChatBtn">导出聊天记录（HTML）</button>
-          <button class="ghost-btn full" id="importChatBtn">导入聊天记录</button>
+          <button class="ghost-btn full" id="exportChatJsonBtn">导出聊天记录（JSON）</button>
+          <button class="ghost-btn full" id="importChatBtn">导入聊天记录（JSON）</button>
           <input type="file" id="importChatInput" accept=".json,application/json" hidden>
 
           <h3 class="settings-group-title danger-title">危险操作</h3>
@@ -468,10 +472,10 @@
       <button class="popup-item" data-act="full">全量导出</button>
     </div>
 
-    <!-- 主字卡按分组导入：覆盖 / 添加 选择浮窗（点空白处关闭） -->
+    <!-- 导入方式选择浮窗：覆盖 / 添加（按分组导入和全量导入共用，点空白处关闭） -->
     <div class="popup-menu" id="importModeMenu" hidden>
-      <button class="popup-item" data-mode="replace">覆盖（清空后替换）</button>
-      <button class="popup-item" data-mode="merge">添加（在现有基础上追加）</button>
+      <button class="popup-item" data-mode="replace">覆盖</button>
+      <button class="popup-item" data-mode="merge">添加</button>
     </div>
 
     <!-- 消息长按操作浮窗：引用 / 删除（点空白处关闭） -->

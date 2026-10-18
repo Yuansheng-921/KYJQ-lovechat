@@ -199,14 +199,31 @@ window.LoveChat = window.LoveChat || {};
       return (this.data.main || []).filter(c => c.category === name).length;
     },
 
-    /* ---- 查重去重（main 模块） ---- */
+    /* ---- 查重去重（main 模块） ----
+     * 规则：同内容字卡只保留一份。
+     * 若一份字卡同时出现在"未分类"和其他分类，优先删除"未分类"里的那一份，
+     * 保留有具体分类的那一份。
+     */
     dedup() {
       const arr = this.data.main || [];
+      // 第一遍：判断每条内容是否在"非未分类"分类里出现过
+      const hasCategorized = new Set();
+      for (const c of arr) {
+        const cat = c.category;
+        if (cat && cat !== '未分类') hasCategorized.add(c.content);
+      }
+      // 第二遍：按原顺序去重
       const seen = new Set();
       const removed = [];
       const kept = [];
       for (const c of arr) {
         const key = c.content;
+        const isUncategorized = !c.category || c.category === '未分类';
+        // 若内容已有具体分类版本，且当前这条是未分类，则跳过（删除）
+        if (isUncategorized && hasCategorized.has(key)) {
+          removed.push(c);
+          continue;
+        }
         if (seen.has(key)) { removed.push(c); continue; }
         seen.add(key);
         kept.push(c);
@@ -214,6 +231,42 @@ window.LoveChat = window.LoveChat || {};
       this.data.main = kept;
       this.save();
       return { removed: removed.length, total: arr.length };
+    },
+
+    /* ---- 全局查重去重（所有模块：回复库 + 氛围感） ----
+     * main 模块走 dedup()（带分类优先级）
+     * 其他模块（emoji/sticker/pat/status）走简单内容去重（保留首次出现）
+     */
+    dedupAll() {
+      const result = {};
+      let totalRemoved = 0;
+      for (const m of MODULE_KEYS) {
+        if (m === 'main') {
+          const r = this.dedup();
+          result.main = r;
+          totalRemoved += r.removed;
+        } else {
+          const arr = this.data[m] || [];
+          const seen = new Set();
+          const kept = [];
+          let removed = 0;
+          for (const c of arr) {
+            const key = c.content;
+            if (seen.has(key)) { removed++; continue; }
+            seen.add(key);
+            kept.push(c);
+          }
+          if (removed > 0) {
+            this.data[m] = kept;
+            result[m] = { removed, total: arr.length };
+            totalRemoved += removed;
+          } else {
+            result[m] = { removed: 0, total: arr.length };
+          }
+        }
+      }
+      if (totalRemoved > 0) this.save();
+      return { perModule: result, removed: totalRemoved };
     },
 
     /* ---- 搜索 ---- */
@@ -355,8 +408,16 @@ window.LoveChat = window.LoveChat || {};
         this._saveRecent();
         this.save();
       }
+      // 添加模式：用 Set 收集原文件已有 content，跳过已存在项，避免重复追加
+      const existing = (mode === 'merge') ? new Set((this.data.main || []).map(c => c.content)) : null;
+      const incomingSeen = (mode === 'merge') ? new Set() : null;
       let added = 0;
       for (const item of incoming) {
+        if (mode === 'merge') {
+          // 跳过原文件已有的内容；也跳过本次导入内部重复
+          if (existing.has(item.content) || incomingSeen.has(item.content)) continue;
+          incomingSeen.add(item.content);
+        }
         if (this.add('main', item)) added++;
       }
       return { ok: true, added, replaced: mode === 'replace' };
@@ -373,11 +434,20 @@ window.LoveChat = window.LoveChat || {};
       let added = 0;
       for (const [m, cards] of Object.entries(data.modules)) {
         if (!LC.MODULES[m] || !Array.isArray(cards)) continue;
+        // 添加模式：跳过原文件已有内容，并避免导入文件内部重复
+        const existing = (mode === 'merge') ? new Set((this.data[m] || []).map(c => c.content)) : null;
+        const incomingSeen = (mode === 'merge') ? new Set() : null;
         for (const c of cards) {
-          if (c.content) { this.add(m, { content: c.content, category: c.category, weight: c.weight }); added++; }
+          if (!c.content) continue;
+          if (mode === 'merge') {
+            if (existing.has(c.content) || incomingSeen.has(c.content)) continue;
+            incomingSeen.add(c.content);
+          }
+          this.add(m, { content: c.content, category: c.category, weight: c.weight });
+          added++;
         }
       }
-      return { ok: true, added };
+      return { ok: true, added, replaced: mode === 'replace' };
     },
 
     /** 模块内导入 */
@@ -385,12 +455,21 @@ window.LoveChat = window.LoveChat || {};
       let data;
       try { data = JSON.parse(jsonText); } catch (e) { return { ok: false, error: 'JSON 格式错误' }; }
       if (mode === 'replace') this.data[module] = [];
+      // 添加模式：跳过原文件已有内容，并避免导入文件内部重复
+      const existing = (mode === 'merge') ? new Set((this.data[module] || []).map(c => c.content)) : null;
+      const incomingSeen = (mode === 'merge') ? new Set() : null;
       let added = 0;
       const cards = (data && data.cards) ? data.cards : (Array.isArray(data) ? data : []);
       for (const c of cards) {
-        if (c.content) { this.add(module, { content: c.content, category: c.category, weight: c.weight }); added++; }
+        if (!c.content) continue;
+        if (mode === 'merge') {
+          if (existing.has(c.content) || incomingSeen.has(c.content)) continue;
+          incomingSeen.add(c.content);
+        }
+        this.add(module, { content: c.content, category: c.category, weight: c.weight });
+        added++;
       }
-      return { ok: true, added };
+      return { ok: true, added, replaced: mode === 'replace' };
     },
   };
 

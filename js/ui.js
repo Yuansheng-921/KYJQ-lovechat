@@ -125,6 +125,7 @@ window.LoveChat = window.LoveChat || {};
       e.catAddInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') this._onAddCategory(); });
       $('#catCloseBtn').addEventListener('click', () => this._closeModal('categoryModal'));
       // 导入导出
+      $('#globalDedupBtn').addEventListener('click', () => this._onGlobalDedup());
       $('#exportBtn').addEventListener('click', (ev) => { ev.stopPropagation(); this._onExportClick(ev); });
       $('#importBtn').addEventListener('click', () => this._onImportClick());
       $('#exportCatConfirm').addEventListener('click', () => this._doExportByCategory());
@@ -139,13 +140,13 @@ window.LoveChat = window.LoveChat || {};
         if (act === 'cat') this._openExportCatModal();
         else if (act === 'full') this._openExportFullModal();
       });
-      $('#importGroupBtn').addEventListener('click', () => this._toggleImportModeMenu());
-      $('#importFullBtn').addEventListener('click', () => this._doImport('full'));
-      // 主字卡按分组导入的方式选择（覆盖 / 添加）
+      $('#importGroupBtn').addEventListener('click', () => this._toggleImportModeMenu('group'));
+      $('#importFullBtn').addEventListener('click', () => this._toggleImportModeMenu('full'));
+      // 导入方式选择（覆盖 / 添加）：按分组导入和全量导入共用此菜单
       $('#importModeMenu').addEventListener('click', (ev) => {
         const btn = ev.target.closest('.popup-item'); if (!btn) return;
         this._closeImportModeMenu();
-        this._doImport('group', btn.dataset.mode);
+        this._doImport(this._importSource || 'group', btn.dataset.mode);
       });
       $('#importCancelBtn').addEventListener('click', () => { this._closeImportModeMenu(); this._closeModal('importModal'); });
       // 消息长按操作浮窗（引用 / 删除）
@@ -281,6 +282,7 @@ window.LoveChat = window.LoveChat || {};
       $('#setLetterProactiveContinuous').addEventListener('change', (ev) => { LC.config.letterProactiveContinuous = ev.target.checked; LC.Storage.set('config', LC.config); });
       // 聊天记录导出/导入
       $('#exportChatBtn').addEventListener('click', () => this._exportChatHistory());
+      $('#exportChatJsonBtn').addEventListener('click', () => this._exportChatHistoryJson());
       $('#importChatBtn').addEventListener('click', () => $('#importChatInput').click());
       $('#importChatInput').addEventListener('change', (ev) => this._importChatHistory(ev));
       $('#choiceCancelBtn').addEventListener('click', () => this._closeModal('choiceModal'));
@@ -334,10 +336,12 @@ window.LoveChat = window.LoveChat || {};
         this._closeExportChoice();
         return;
       }
-      // 主字卡导入方式浮窗（覆盖/添加）：点任何空白处关闭
+      // 导入方式浮窗（覆盖/添加）：点任何空白处关闭（按分组导入 / 全量导入按钮都触发该菜单，需排除）
       const importModeMenu = $('#importModeMenu');
       if (importModeMenu && !importModeMenu.hidden
-          && !importModeMenu.contains(ev.target) && !$('#importGroupBtn').contains(ev.target)) {
+          && !importModeMenu.contains(ev.target)
+          && !$('#importGroupBtn').contains(ev.target)
+          && !$('#importFullBtn').contains(ev.target)) {
         this._closeImportModeMenu();
         return;
       }
@@ -700,10 +704,10 @@ window.LoveChat = window.LoveChat || {};
     },
     /* 新消息渲染后调用：根据用户当前位置决定滚到底部或累计未读
      * - 用户在底部：滚动到底部（带 programmatic 标志，避免误判）
-     * - 用户不在底部 + 对方消息：累计未读、显示指示器（不滚）
-     * - 用户不在底部 + 我自己的消息：保持不滚（避免打断阅读） */
+     * - 我自己发的消息：强制滚动到底部（用户主动发送后应回到最新一条）
+     * - 用户不在底部 + 对方消息：累计未读、显示指示器（不滚） */
     _maybeAutoScroll(role) {
-      if (this._isAtBottom) {
+      if (this._isAtBottom || role === 'me') {
         this._programmaticScrollBottom(false);
       } else if (role === 'partner') {
         this._unreadCount = (this._unreadCount || 0) + 1;
@@ -1417,6 +1421,15 @@ window.LoveChat = window.LoveChat || {};
       this._toast(r.removed ? `删除了 ${r.removed} 条重复字卡` : '没有重复字卡', 2000);
     },
 
+    /* ============ 全局查重（回复库 + 氛围感） ============ */
+    _onGlobalDedup() {
+      const r = LC.CardLibrary.dedupAll();
+      // 刷新面板（包括分类标签与字卡列表）
+      this._renderPanelContent();
+      if (this._activeModule === 'main') { this._renderCatChips(); this._renderMainList(); }
+      this._toast(r.removed ? `全局查重：删除了 ${r.removed} 条重复字卡` : '没有重复字卡', 2000);
+    },
+
     /* ============ 导出 ============ */
     _onExportClick(ev) {
       // 在导出按钮附近弹出选择浮窗（按分类导出 / 全量导出）
@@ -1637,8 +1650,8 @@ window.LoveChat = window.LoveChat || {};
         reader.onload = () => {
           let result;
           if (mode === 'group') result = LC.CardLibrary.importByGroup(reader.result, importMode);
-          else if (mode === 'full') result = LC.CardLibrary.importFull(reader.result, 'merge');
-          else result = LC.CardLibrary.importModule(reader.result, this._activeModule, 'merge');
+          else if (mode === 'full') result = LC.CardLibrary.importFull(reader.result, importMode);
+          else result = LC.CardLibrary.importModule(reader.result, this._activeModule, importMode);
           if (result.ok) {
             this._renderPanelContent();
             if (this._activeModule === 'main') { this._renderCatChips(); this._renderMainList(); }
@@ -1655,11 +1668,12 @@ window.LoveChat = window.LoveChat || {};
       input.click();
     },
 
-    /* ---- 主字卡按分组导入：覆盖 / 添加 选择浮窗 ---- */
-    _toggleImportModeMenu() {
+    /* ---- 导入方式选择浮窗：覆盖 / 添加（按分组导入 / 全量导入共用） ---- */
+    _toggleImportModeMenu(source = 'group') {
       const m = $('#importModeMenu');
       if (!m.hidden) { this._closeImportModeMenu(); return; }
-      const btn = $('#importGroupBtn');
+      this._importSource = source;  // 记录当前导入来源（'group' / 'full'）
+      const btn = source === 'full' ? $('#importFullBtn') : $('#importGroupBtn');
       const r = btn.getBoundingClientRect();
       const menuW = 210;
       let left = r.right - menuW; if (left < 8) left = 8;
@@ -2844,6 +2858,13 @@ h1{text-align:center;color:#E75480;}.container{max-width:600px;margin:0 auto;}
 .chat-bubble.them{background:#fff;color:#333;border-bottom-left-radius:4px;}</style></head>
 <body><h1>聊天记录</h1><div class="container">${items || '<p style="text-align:center;color:#999;">暂无消息</p>'}</div></body></html>`;
       this._showTextExportModal(html, 'chat-history-' + this._dateStr() + '.html');
+    },
+
+    /* 聊天记录导出（JSON）：与导入格式匹配，走 _download 流程（弹窗确认+改文件名+显示大小） */
+    _exportChatHistoryJson() {
+      const h = LC.ChatEngine.getHistory();
+      const json = JSON.stringify(h, null, 2);
+      this._download(json, 'chat-history-' + this._dateStr() + '.json');
     },
 
     async _importChatHistory(ev) {

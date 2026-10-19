@@ -204,7 +204,19 @@ svg { display: block; }
 }
 /* 消息行内小头像默认态也走中性灰 */
 .msg-row .avatar.avatar-default { background: #B6B6BE; }
-.name-status { display: flex; flex-direction: column; align-items: center; line-height: 1.3; }
+.name-status {
+  /* 绝对定位到 chat-header 的水平中心点（=最左图标按钮与最右图标按钮中心连线的中点）
+     无论左右两侧再加多少图标，名字/状态始终对齐屏幕中心 */
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.3;
+  pointer-events: none; /* 避免遮挡左右按钮点击；若需点击名字/状态可去掉 */
+}
 .partner-name { font-size: 16px; font-weight: 500; color: var(--text-primary); }
 .partner-status { font-size: 11px; color: var(--accent); }
 .partner-status::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 4px; vertical-align: middle; }

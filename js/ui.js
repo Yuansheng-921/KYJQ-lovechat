@@ -2227,12 +2227,10 @@ window.LoveChat = window.LoveChat || {};
       this._updateChoiceSendBtn();
       this._showModal('choiceModal');
       // 让弹窗内部滚轮初始位于最上方（手机端避免默认滚到中间，导致看不到单选/多选按钮）
+      // 用户要求：打开弹窗后不要主动触发任何输入框的 focus，否则浏览器会把焦点元素 scrollIntoView
+      // 到视野中央，把"单选/多选"按钮挤出顶部可视区。
       requestAnimationFrame(() => { if (this.el.choiceScroll) this.el.choiceScroll.scrollTop = 0; });
-      // focus 时阻止浏览器自动 scrollIntoView（避免把问题输入框滚到视野中而把单选/多选挤出顶部）
-      setTimeout(() => {
-        this.el.choiceQuestion.focus({ preventScroll: true });
-        if (this.el.choiceScroll) this.el.choiceScroll.scrollTop = 0;
-      }, 100);
+      setTimeout(() => { if (this.el.choiceScroll) this.el.choiceScroll.scrollTop = 0; }, 60);
     },
     _renderChoiceOptions(options) {
       const wrap = this.el.choiceOptions;

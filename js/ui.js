@@ -44,7 +44,7 @@ window.LoveChat = window.LoveChat || {};
         emptyState: $('#emptyState'), typingIndicator: $('#typingIndicator'),
         typingAvatar: $('#typingAvatar'),
         messageInput: $('#messageInput'), sendBtn: $('#sendBtn'),
-        partnerName: $('#partnerName'), partnerAvatar: $('#partnerAvatar'),
+        partnerName: $('#partnerName'),
         partnerStatus: $('#partnerStatus'),
         cardsPanel: $('#cardsPanel'), settingsPanel: $('#settingsPanel'),
         overlay: $('#overlay'), panelBody: $('#panelBody'), panelSubTabs: $('#panelSubTabs'), panelMgmtBar: $('#panelMgmtBar'),
@@ -68,6 +68,7 @@ window.LoveChat = window.LoveChat || {};
         setBgFit: $('#setBgFit'),
         choiceModal: $('#choiceModal'), choiceMinutes: $('#choiceMinutes'),
         choiceQuestion: $('#choiceQuestion'), choiceOptions: $('#choiceOptions'),
+        choiceScroll: document.querySelector('#choiceModal .choice-scroll'),
         choiceAddOptBtn: $('#choiceAddOptBtn'), choiceHint: $('#choiceHint'),
         choiceModeSingle: $('#choiceModeSingle'), choiceModeMulti: $('#choiceModeMulti'),
         choiceModeHint: $('#choiceModeHint'),
@@ -1943,10 +1944,8 @@ window.LoveChat = window.LoveChat || {};
     renderHeader() {
       this.el.partnerName.textContent = LC.config.partner.name;
       // 头像：emoji 字符串 / {url, crop} 对象 / 空=默认剪影
+      // 头部头像已移除（仅保留打字指示器的小头像）
       const av = LC.config.partner.avatar;
-      this.el.partnerAvatar.innerHTML = this._avatarHTML(av);
-      this.el.partnerAvatar.classList.toggle('avatar-photo', !!(av && typeof av === 'object'));
-      this.el.partnerAvatar.classList.toggle('avatar-default', !av);
       this.el.typingAvatar.innerHTML = this._avatarHTML(av);
       this.el.typingAvatar.classList.toggle('avatar-photo', !!(av && typeof av === 'object'));
       this.el.typingAvatar.classList.toggle('avatar-default', !av);
@@ -2227,7 +2226,13 @@ window.LoveChat = window.LoveChat || {};
       this._setChoiceMode('single');
       this._updateChoiceSendBtn();
       this._showModal('choiceModal');
-      setTimeout(() => this.el.choiceQuestion.focus(), 100);
+      // 让弹窗内部滚轮初始位于最上方（手机端避免默认滚到中间，导致看不到单选/多选按钮）
+      requestAnimationFrame(() => { if (this.el.choiceScroll) this.el.choiceScroll.scrollTop = 0; });
+      // focus 时阻止浏览器自动 scrollIntoView（避免把问题输入框滚到视野中而把单选/多选挤出顶部）
+      setTimeout(() => {
+        this.el.choiceQuestion.focus({ preventScroll: true });
+        if (this.el.choiceScroll) this.el.choiceScroll.scrollTop = 0;
+      }, 100);
     },
     _renderChoiceOptions(options) {
       const wrap = this.el.choiceOptions;

@@ -463,8 +463,10 @@ window.LoveChat = window.LoveChat || {};
       // 1. 立即写入我方的抉择消息（mode 标记，便于渲染时显示单选/多选）
       const msg = this._addMsg('me', 'choice', { question: q, options: opts, mode: replyMode, chosenIndices: undefined });
       cbs.onUserMessage && cbs.onUserMessage(msg);
-      // 2. 在 [0, win*60s] 之间随机一个延迟后回复
-      const delayMs = win > 0 ? Math.random() * win * 60 * 1000 : 0;
+      // 2. 在 [8s, win*60s] 之间随机一个延迟后回复（最短 8 秒）
+      const minMs = 8000;
+      const maxMs = Math.max(minMs, win * 60 * 1000);
+      const delayMs = minMs + Math.random() * (maxMs - minMs);
       const timer = setTimeout(() => {
         // 从列表中移除
         this._choiceTimers = this._choiceTimers.filter(t => t !== timer);

@@ -20,8 +20,9 @@
   /* 禁止浏览器跟随系统暗色自动反转颜色（网站暗色由 [data-theme="dark"] 控制） */
   color-scheme: light;
   /* 浅色主题（默认） */
-  --bg-gradient: linear-gradient(175deg, #FFF5F7 0%, #FFE8EE 35%, #F3E6F0 75%, #EDE0F0 100%);
-  --bg-solid: #FFF5F7;
+  /* 手机界面内背景：月白色纯色 */
+  --bg-gradient: #D6ECF0;
+  --bg-solid: #D6ECF0;
   --surface: rgba(255, 255, 255, 0.82);
   --surface-solid: #FFFFFF;
   --surface-elevated: rgba(255, 255, 255, 0.95);
@@ -129,13 +130,18 @@ svg { display: block; }
   overflow: hidden;
 }
 @media (max-width: 599px) {
-  /* 手机端：#app 占满屏宽，不留右侧粉色发光边带；去掉桌面式阴影 */
+  /* 手机端：#app 占满屏宽，无界面外背景；浅色主题下不带粉色发光阴影 */
   #app { max-width: 100%; box-shadow: none; }
 }
 @media (min-width: 600px) {
-  #app { box-shadow: var(--shadow-lg); }
+  /* PC 端：手机界面外背景 = 雾霾蓝纯色（浅色主题）；
+     浅色主题下手机界面四周带白色泛光（区别于原本的粉色反光）；
+     深色主题保留原有渐变与暗色阴影 */
+  #app { box-shadow: 0 8px 30px rgba(255, 255, 255, 0.55); }
   body { display: flex; align-items: center; justify-content: center;
-         background: var(--bg-gradient); background-attachment: fixed; }
+         background: #8CC9D4; background-attachment: fixed; }
+  [data-theme="dark"] body { background: var(--bg-gradient); background-attachment: fixed; }
+  [data-theme="dark"] #app { box-shadow: var(--shadow-lg); }
 }
 
 .chat-view {
@@ -509,12 +515,15 @@ body.ui-hidden #multiSendModal { display: none !important; }
   z-index: 100;
   transform: translateX(100%);
   transition: transform 0.35s var(--ease);
-  box-shadow: var(--shadow-lg);
+  /* 关闭态不带阴影：translateX(100%) 把面板推到屏幕外右侧,
+     但 box-shadow 不被 transform 裁剪, 会在屏幕最右侧外溢 ~30px 粉色光晕 */
+  box-shadow: none;
 }
 @media (min-width: 600px) {
   .panel { border-radius: 0; }
 }
-.panel.open { transform: translateX(0); }
+/* 仅在打开态加阴影：此时面板已进入屏幕内, 阴影围绕可见面板, 不会外泄到屏幕右侧 */
+.panel.open { transform: translateX(0); box-shadow: var(--shadow-lg); }
 
 .panel-header {
   display: flex;
@@ -657,9 +666,11 @@ body.ui-hidden #multiSendModal { display: none !important; }
 
 .settings-group { margin-bottom: 24px; }
 .settings-group-title {
-  font-size: 13px; font-weight: 500; color: var(--text-secondary);
+  font-size: 13px; font-weight: 700; color: var(--text-primary);
   margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
 }
+/* 深色主题：设置分组标题改为接近白色的超浅灰（非纯白） */
+[data-theme="dark"] .settings-group-title { color: #E8E8E8; }
 /* 数据 Tab 专用样式 */
 .data-note {
   font-size: 12px; line-height: 1.6; color: var(--text-secondary);

@@ -167,6 +167,11 @@ window.LoveChat = window.LoveChat || {};
       for (const c of this.data.main || []) {
         if (c.category === name) c.category = '未分类';
       }
+      // 同步从空分类占位数组移除，否则 getAllCategories 仍会把已删除的空分类名返回
+      if (Array.isArray(this._emptyCats)) {
+        this._emptyCats = this._emptyCats.filter(n => n !== name);
+        Storage.set('emptyCats', this._emptyCats);
+      }
       this.save();
       return true;
     },

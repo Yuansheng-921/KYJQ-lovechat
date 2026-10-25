@@ -173,17 +173,15 @@ window.LoveChat = window.LoveChat || {};
      * 我发表情包（触发正常回合）
      */
     sendSticker(dataUrl, cbs = {}) {
-      // busy 期间：消息已由 ui 层显示+存储，这里只累积到 _pending，
-      // 等回合结束按 50/50 处理（见 _flushTurn 结尾）
-      if (this._busy) {
-        this._pending.push({ text: '[表情包]', msg: { kind: 'sticker', content: dataUrl }, isSticker: true });
-        this._lastCbs = cbs;
-        return true;
-      }
+      // 与 sendUserMessage 统一流程：始终由 ChatEngine 内部 _addMsg 入库一次，
+      // 通过 onUserMessage 回调让 UI 渲染（修复历史上 UI 层重复 push 导致表情包重复入库的 bug）
       const userMsg = this._addMsg('me', 'sticker', dataUrl);
       cbs.onUserMessage && cbs.onUserMessage(userMsg);
+      // 累积到待处理回合
       this._pending.push({ text: '[表情包]', msg: userMsg, isSticker: true });
       this._lastCbs = cbs;
+      // busy 期间不启动合并计时器，等回合结束衔接（与 sendUserMessage 一致）
+      if (this._busy) return true;
       if (this._mergeTimer) clearTimeout(this._mergeTimer);
       const win = LC.config.mergeWindow || 5000;
       setTimeout(() => { if (this._busy || !this._pending.length) return; cbs.onTypingStart && cbs.onTypingStart(); }, 1000);

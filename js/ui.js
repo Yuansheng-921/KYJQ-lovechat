@@ -925,13 +925,10 @@ window.LoveChat = window.LoveChat || {};
           return;
         }
         this.el.emptyState.style.display = 'none';
-        // 先渲染我的表情包消息
-        const myMsg = { id: 'msg_'+Date.now()+'_u', role: 'me', kind: 'sticker', content: card.content, time: Date.now() };
-        LC.ChatEngine.history.push(myMsg);
-        LC.Storage.set('history', LC.ChatEngine.history);
-        this._renderMessage(myMsg);
+        // 走 ChatEngine.sendSticker 统一入库流程（修复历史上 UI 层重复 push 导致表情包重复入库的 bug）
+        // 由 ChatEngine 内部 _addMsg 入库一次，再通过 onUserMessage 回调渲染
         LC.ChatEngine.sendSticker(card.content, {
-          onUserMessage: () => {},
+          onUserMessage: (m) => this._renderMessage(m),
           onTypingStart: () => this.showTyping(true),
           onTypingEnd: () => this.showTyping(false),
           onUnit: (m) => this._renderMessage(m),

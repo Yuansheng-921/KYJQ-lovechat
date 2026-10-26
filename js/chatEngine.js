@@ -77,7 +77,7 @@ window.LoveChat = window.LoveChat || {};
         ...extra,
       };
       this.history.push(msg);
-      if (this.history.length > 800) this.history = this.history.slice(-800);
+      // 不再限制聊天记录条数上限（原 800 条截断已移除，改用条数提醒功能引导用户备份）
       Storage.set('history', this.history);
       return msg;
     },

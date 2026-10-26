@@ -376,23 +376,161 @@ window.LoveChat = window.LoveChat || {};
     },
 
     /* ============ 消息渲染 ============ */
+    // 分批加载配置（参考 milk-main：初始 70 条 + 每批 100 条 + 哨兵 + 隐藏容器避免跳动）
+    _renderBatch: 70,          // 初始加载条数
+    _loadBatch: 100,           // 每次上滑加载条数
+    _loadedCount: 0,           // 已渲染条数（从末尾往前累计）
+    _loadingMore: false,       // 加载中标志（防重入）
+    _loadMoreObserver: null,   // IntersectionObserver 实例（监听顶部哨兵）
     renderHistory() {
       const h = LC.ChatEngine.getHistory();
       this.el.messagesScroll.innerHTML = '';
+      this._loadingMore = false;
       if (!h.length) {
+        this._loadedCount = 0;
         this.el.emptyState.style.display = '';
         this._updateMessagesLayout();
         return;
       }
       this.el.emptyState.style.display = 'none';
+      // 只渲染最近 _renderBatch 条；若总条数更少则全量渲染
+      const start = Math.max(0, h.length - this._renderBatch);
+      this._loadedCount = h.length - start;
       let lastDate = '';
-      for (const m of h) {
+      for (let i = start; i < h.length; i++) {
+        const m = h[i];
         const ds = this._fmtDate(m.time);
         if (ds !== lastDate) { this._renderDateSep(ds); lastDate = ds; }
         this._renderMessage(m, false);
       }
+      // 仍有更早历史 → 顶部插入"向上滚动加载更多"提示
+      if (start > 0) this._renderLoadMoreIndicator(false);
       this._updateMessagesLayout();
       this._scrollBottom(true);
+      // 启动 IntersectionObserver 监听顶部哨兵
+      this._observeLoadMore();
+    },
+    /* IntersectionObserver 监听顶部"加载更多"哨兵，进入视野 200px 时触发加载
+     * 参考 milk-main core.js L2305-L2321 */
+    _observeLoadMore() {
+      const sentinel = document.getElementById('loadMoreTop');
+      if (!sentinel) {
+        // 没有哨兵（已无更多历史）：断开旧 observer
+        if (this._loadMoreObserver) { this._loadMoreObserver.disconnect(); this._loadMoreObserver = null; }
+        return;
+      }
+      // 已存在 observer：先断开（避免重复 observe），再重新观察新哨兵节点
+      if (this._loadMoreObserver) this._loadMoreObserver.disconnect();
+      if (typeof IntersectionObserver === 'undefined') return; // 老浏览器降级
+      this._loadMoreObserver = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && !this._loadingMore) {
+          const h = LC.ChatEngine.getHistory();
+          if (this._loadedCount < h.length) this._loadMoreHistory();
+        }
+      }, {
+        root: this.el.messages,
+        rootMargin: '200px 0px 0px 0px',   // 顶部 200px 提前触发
+        threshold: 0.01
+      });
+      this._loadMoreObserver.observe(sentinel);
+    },
+    /* 顶部"加载更多"提示节点（点击或滚动到顶部触发） */
+    _renderLoadMoreIndicator(loading = false) {
+      const old = document.getElementById('loadMoreTop');
+      if (old) {
+        // 只切换状态，避免重复插入
+        old.classList.toggle('loading', loading);
+        old.firstElementChild && (old.firstElementChild.textContent = loading ? '加载中…' : '向上滚动加载更多');
+        return;
+      }
+      const indicator = document.createElement('div');
+      indicator.id = 'loadMoreTop';
+      indicator.className = 'load-more-indicator';
+      indicator.innerHTML = `<span>${loading ? '加载中…' : '向上滚动加载更多'}</span>`;
+      this.el.messagesScroll.insertBefore(indicator, this.el.messagesScroll.firstChild);
+    },
+    _removeLoadMoreIndicator() {
+      const old = document.getElementById('loadMoreTop');
+      if (old) old.remove();
+    },
+    /* 向前加载一批（_loadedCount 之前的 _renderBatch 条）
+     * 关键：插入顶部时保持当前 scrollTop 不跳变（视野不动） */
+    _loadMoreHistory() {
+      if (this._loadingMore) return;
+      const h = LC.ChatEngine.getHistory();
+      if (this._loadedCount >= h.length) { this._removeLoadMoreIndicator(); return; }
+      this._loadingMore = true;
+      this._renderLoadMoreIndicator(true);
+      const container = this.el.messages;           // 滚动容器
+      const scrollInner = this.el.messagesScroll;   // 消息列表容器
+
+      // === 锚点法（参考 milk-main core.js L91-L134）：找当前视窗内第一条可见 msg-row ===
+      const wrappers = Array.from(scrollInner.querySelectorAll('.msg-row'));
+      const firstVisible = wrappers.find(el => el.offsetTop + el.offsetHeight >= container.scrollTop)
+                          || wrappers[0] || null;
+      const anchorId = firstVisible ? firstVisible.dataset.id : null;
+      const anchorTop = firstVisible ? firstVisible.getBoundingClientRect().top : 0;
+
+      // === 隐藏容器（淡出 + 隐藏 overflow）避免渲染跳动可见 ===
+      const prevVisibility = scrollInner.style.visibility;
+      const prevOverflow   = container.style.overflow;
+      const prevScrollBehavior = container.style.scrollBehavior;
+      const prevOpacity    = scrollInner.style.opacity;
+      scrollInner.style.opacity = '0.015';
+      scrollInner.style.visibility = 'hidden';
+      container.style.overflow = 'hidden';
+      container.style.scrollBehavior = 'auto';
+
+      // 计算新一批范围（向前再取 _loadBatch 条）
+      const prevStart = h.length - this._loadedCount;
+      const newCount = Math.min(this._loadBatch, prevStart);
+      const newStart = prevStart - newCount;
+
+      setTimeout(() => {
+        // 渲染新批次到 DocumentFragment，避免多次 reflow
+        this._removeLoadMoreIndicator();
+        const frag = document.createDocumentFragment();
+        let lastDate = '';
+        for (let i = newStart; i < newStart + newCount; i++) {
+          const m = h[i];
+          const ds = this._fmtDate(m.time);
+          if (ds !== lastDate) { this._renderDateSep(ds, frag); lastDate = ds; }
+          this._renderMessage(m, false, frag);
+        }
+        if (newStart > 0) {
+          const indicator = document.createElement('div');
+          indicator.id = 'loadMoreTop';
+          indicator.className = 'load-more-indicator';
+          indicator.innerHTML = '<span>向上滚动加载更多</span>';
+          frag.insertBefore(indicator, frag.firstChild);
+        }
+        scrollInner.insertBefore(frag, scrollInner.firstChild);
+        this._loadedCount += newCount;
+
+        // === 第一帧 rAF：用锚点修正 scrollTop（让视野保持原位置） ===
+        requestAnimationFrame(() => {
+          if (anchorId) {
+            const newAnchor = scrollInner.querySelector('.msg-row[data-id="' + CSS.escape(anchorId) + '"]');
+            if (newAnchor) {
+              const newTop = newAnchor.getBoundingClientRect().top;
+              container.scrollTop += (newTop - anchorTop);
+            }
+          } else {
+            // 无锚点兜底：保持原 scrollTop + 新增内容高度
+          }
+
+          // === 第二帧 rAF：恢复可见 ===
+          requestAnimationFrame(() => {
+            scrollInner.style.opacity = prevOpacity || '';
+            scrollInner.style.visibility = prevVisibility || '';
+            container.style.overflow = prevOverflow || '';
+            container.style.scrollBehavior = prevScrollBehavior || '';
+            this._loadingMore = false;
+            // 重新观察哨兵（IntersectionObserver 在隐藏期间可能漏触发）
+            this._observeLoadMore();
+          });
+        });
+      }, 120);
     },
     /** 根据消息内容高度动态切换对齐方式：
      *  消息少（未撑满容器）→ 从顶部开始显示，避免空界面下方大片留白
@@ -408,17 +546,17 @@ window.LoveChat = window.LoveChat || {};
         scroll.classList.remove('align-top');
       }
     },
-    _renderDateSep(ds) {
+    _renderDateSep(ds, container = null) {
       const s = document.createElement('div'); s.className = 'date-separator';
       s.innerHTML = `<span>${esc(ds)}</span>`;
-      this.el.messagesScroll.appendChild(s);
+      (container || this.el.messagesScroll).appendChild(s);
     },
-    _renderMessage(msg, animate = true) {
+    _renderMessage(msg, animate = true, container = null) {
       // 首条消息：隐藏空状态
       if (this.el.emptyState) this.el.emptyState.style.display = 'none';
-      if (msg.kind === 'pat') { this._renderPatMessage(msg, animate); this._updateMessagesLayout(); return; }
-      if (msg.kind === 'choice') { this._renderChoiceMessage(msg, animate); this._updateMessagesLayout(); return; }
-      if (msg.kind === 'letter') { this._renderLetterMessage(msg, animate); this._updateMessagesLayout(); return; }
+      if (msg.kind === 'pat') { this._renderPatMessage(msg, animate, container); this._updateMessagesLayout(); return; }
+      if (msg.kind === 'choice') { this._renderChoiceMessage(msg, animate, container); this._updateMessagesLayout(); return; }
+      if (msg.kind === 'letter') { this._renderLetterMessage(msg, animate, container); this._updateMessagesLayout(); return; }
       const row = document.createElement('div');
       row.className = 'msg-row ' + msg.role;
       row.dataset.id = msg.id;
@@ -438,11 +576,11 @@ window.LoveChat = window.LoveChat || {};
       const quoteHTML = msg.quote ? this._quoteBlockHTML(msg.quote) : '';
       row.innerHTML = `<div class="avatar${avClass}">${avatarHTML}</div><div class="bubble-group"><div class="${bubbleClass}">${quoteHTML}${content}</div><div class="msg-time">${timeStr}</div></div>`;
       if (!animate) row.style.animation = 'none';
-      this.el.messagesScroll.appendChild(row);
+      (container || this.el.messagesScroll).appendChild(row);
       // 长按消息弹出操作菜单（引用 / 删除）—— 仅普通文字与表情包消息支持
       this._attachLongPress(row, msg);
-      this._updateMessagesLayout();
-      if (animate) this._maybeAutoScroll(msg.role);
+      if (!container) this._updateMessagesLayout();
+      if (animate && !container) this._maybeAutoScroll(msg.role);
     },
     /** 渲染头像 HTML（支持 emoji 字符串 / {url,crop} 对象 / 空=默认剪影） */
     _avatarHTML(avatar) {
@@ -585,7 +723,7 @@ window.LoveChat = window.LoveChat || {};
       this._closePatMarkMenu();
     },
     /** 渲染抉择 box 消息（用户发 + 对方回） */
-    _renderChoiceMessage(msg, animate = true) {
+    _renderChoiceMessage(msg, animate = true, container = null) {
       const row = document.createElement('div');
       row.className = 'msg-row ' + msg.role;
       row.dataset.id = msg.id;
@@ -605,12 +743,12 @@ window.LoveChat = window.LoveChat || {};
       // box 只显示标题, 不显示选项列表 (查看详情时再展示)
       row.innerHTML = `<div class="avatar${avClass}">${avatarHTML}</div><div class="bubble-group"><div class="choice-bubble" data-id="${esc(msg.id)}"><div class="cb-title"><span class="cb-pre">${esc(pre)}</span><span class="cb-q">${esc(question)}</span><span class="cb-suf">${esc(suf)}</span></div><div class="cb-foot"><span class="cb-mode">${esc(modeLabel)}</span><span class="cb-foot-hint">点击查看详情</span></div></div><div class="msg-time">${timeStr}</div></div>`;
       if (!animate) row.style.animation = 'none';
-      this.el.messagesScroll.appendChild(row);
+      (container || this.el.messagesScroll).appendChild(row);
       // 需求2：标题视觉最多 4 行（不含"点击查看详情"提示行），超出时只省略问题内容，保留模板前后缀
       this._clampChoiceTitle(row.querySelector('.cb-title'), pre, question, suf, 4);
       // 点击 box 打开详情弹窗
       row.querySelector('.choice-bubble').addEventListener('click', () => this._openChoiceDetail(msg.id));
-      if (animate) this._maybeAutoScroll(msg.role);
+      if (animate && !container) this._maybeAutoScroll(msg.role);
     },
     /* 需求2：抉择框标题限 maxLines 行（视觉行，按 scrollHeight vs lineHeight*maxLines 判定）
      * 超出时通过二分查找截断问题内容（保留前缀 pre 与后缀 suf），并在截断处加 "…" */
@@ -647,7 +785,7 @@ window.LoveChat = window.LoveChat || {};
       tryLen(result);
     },
     /** 渲染信封样式消息（信件发送到聊天记录时） */
-    _renderLetterMessage(msg, animate = true) {
+    _renderLetterMessage(msg, animate = true, container = null) {
       const row = document.createElement('div');
       row.className = 'msg-row ' + msg.role;
       row.dataset.id = msg.id;
@@ -661,9 +799,9 @@ window.LoveChat = window.LoveChat || {};
       const titleText = msg.role === 'me' ? '我寄出了一封信，记得查收' : 'Ta 寄来了一封信，记得查收';
       row.innerHTML = `<div class="avatar${avClass}">${avatarHTML}</div><div class="bubble-group"><div class="letter-bubble" data-letter-id="${esc(letterId || '')}"><div class="lb-icon">✉️</div><div class="lb-text">${esc(titleText)}</div><div class="lb-foot">点击查看信件</div></div><div class="msg-time">${timeStr}</div></div>`;
       if (!animate) row.style.animation = 'none';
-      this.el.messagesScroll.appendChild(row);
+      (container || this.el.messagesScroll).appendChild(row);
       row.querySelector('.letter-bubble').addEventListener('click', () => this._openLetterPreview(letterId));
-      if (animate) this._maybeAutoScroll(msg.role);
+      if (animate && !container) this._maybeAutoScroll(msg.role);
     },
     _renderChoicePreview(options, chosenIndex) {
       const arr = options || [];
@@ -675,7 +813,7 @@ window.LoveChat = window.LoveChat || {};
       const extra = arr.length > max ? `<div class="cb-opt">…还有 ${arr.length - max} 个</div>` : '';
       return shown + extra;
     },
-    _renderPatMessage(msg, animate = true) {
+    _renderPatMessage(msg, animate = true, container = null) {
       const row = document.createElement('div');
       row.className = 'msg-row pat';
       row.dataset.id = msg.id;
@@ -685,8 +823,8 @@ window.LoveChat = window.LoveChat || {};
       const markHTML = mark ? `<span class="pat-mark">${esc(mark)}</span>` : '';
       row.innerHTML = `<div class="pat-msg">${markHTML}${esc(msg.content || '')}</div>`;
       if (!animate) row.style.animation = 'none';
-      this.el.messagesScroll.appendChild(row);
-      if (animate) this._maybeAutoScroll(msg.role);
+      (container || this.el.messagesScroll).appendChild(row);
+      if (animate && !container) this._maybeAutoScroll(msg.role);
     },
     _scrollBottom(instant) {
       const el = this.el.messages;
@@ -716,7 +854,9 @@ window.LoveChat = window.LoveChat || {};
       }
     },
     /* 根据当前滚动位置更新状态 + 指示器显隐
-     * 触发指示器显示的阈值：距离底部 > 容器可视高度的一半（"翻半页"以上） */
+     * 触发指示器显示的阈值：距离底部 > 容器可视高度的一半（"翻半页"以上）
+     * 注意：上滑加载历史改由 IntersectionObserver 监听顶部哨兵触发（_observeLoadMore），
+     *       本函数只负责"回到底部"指示器的显隐，不再判断 scrollTop<=50 */
     _updateScrollState() {
       const el = this.el.messages;
       if (!el) return;
@@ -743,6 +883,42 @@ window.LoveChat = window.LoveChat || {};
         // 中间区域（半页内但不在底部）：隐藏指示器
         this._hideScrollToBottom();
       }
+    },
+    /* ============ 聊天记录条数提醒 ============
+     * 取消 800 条上限后，改为条数提醒引导用户备份
+     * 规则：超过 5000 / 8000 条时，在聊天顶部弹出纯色提示横幅
+     * 每个档位点"我知道了"后不再提醒；清空记录后自动重置，下次再超会重新提醒 */
+    _historyReminderThresholds: [5000, 8000],
+    async _checkHistoryReminder() {
+      try {
+        const count = LC.ChatEngine.getHistory().length;
+        let dismissed = await LC.Storage.get('historyReminderDismissed', 0) || 0;
+        // 记录被清空/减少 → 重置已读档位，下次再超会重新提醒
+        if (count < dismissed) { dismissed = 0; LC.Storage.set('historyReminderDismissed', 0); }
+        // 找当前应提醒的最高档位（未读过且已到达的）
+        const hit = this._historyReminderThresholds.filter(t => count >= t && t > dismissed).pop();
+        if (!hit) return;
+        this._showHistoryReminder(hit);
+      } catch (e) { console.warn('[LoveChat] 条数提醒检查失败:', e); }
+    },
+    _showHistoryReminder(threshold) {
+      const old = document.getElementById('historyReminderBanner');
+      if (old) old.remove();
+      const chatView = document.querySelector('.chat-view');
+      if (!chatView) return;
+      const banner = document.createElement('div');
+      banner.id = 'historyReminderBanner';
+      banner.className = 'history-reminder';
+      banner.innerHTML = `
+        <div class="hr-main">⚠️ 温馨提示：当前对话记录已超过 ${threshold} 条，为保障程序持续流畅运行，建议定期备份聊天记录。</div>
+        <div class="hr-sub">小提示：聊天记录累计过多可能造成卡顿。如遇卡顿，请前往设置——数据——导出聊天记录 进行备份，再清空当前聊天记录，以优化程序性能。</div>
+        <div class="hr-footer"><button class="hr-ok" id="historyReminderOk">我知道了</button></div>`;
+      chatView.appendChild(banner);
+      banner.querySelector('#historyReminderOk').addEventListener('click', () => {
+        LC.Storage.set('historyReminderDismissed', threshold);
+        banner.classList.add('closing');
+        setTimeout(() => banner.remove(), 200);
+      });
     },
     _showScrollToBottom(count) {
       const btn = $('#scrollBottomBtn');
@@ -998,6 +1174,42 @@ window.LoveChat = window.LoveChat || {};
       else if (mod.type === 'image') this._renderStickerPanel();
       else this._renderTextListPanel(); // pat / status
     },
+    /* ============ 字卡库通用分页渲染（参考 milk-main reply-library.js L689-L717） ============
+     * 目的：避免一次性渲染全部字卡导致打开卡顿（2000 条主字卡打开需 3-4 秒）
+     * 策略：先渲染前 80 条，超过时追加"显示更多"按钮，点击后一次性追加剩余
+     * 适用：所有字卡模块（main/emoji/sticker/pat/status）的列表与网格
+     * 多选兼容：分页只影响渲染，不影响选中状态。点"全选"会选中当前分类的全部（含未渲染部分），
+     *           点"显示更多"后新渲染的卡片 checkbox 会根据 _multiSel 自动反映选中状态 */
+    _cardPageSize: 80,
+    _renderCardListPaginated(container, cards, renderItem, opts = {}) {
+      if (!container) return;
+      container.innerHTML = '';
+      if (!cards.length) {
+        if (opts.emptyHtml) container.innerHTML = opts.emptyHtml;
+        return;
+      }
+      const pageSize = opts.pageSize || this._cardPageSize;
+      const toRender = cards.slice(0, pageSize);
+      const remaining = cards.length - toRender.length;
+      const frag = document.createDocumentFragment();
+      toRender.forEach(card => frag.appendChild(renderItem(card)));
+      // 超过 80 条 → 追加"显示更多"按钮
+      if (remaining > 0) {
+        const btn = document.createElement('button');
+        btn.className = 'card-show-more' + (opts.buttonClass ? ' ' + opts.buttonClass : '');
+        btn.textContent = `显示剩余 ${remaining} 条`;
+        btn.addEventListener('click', () => {
+          btn.remove();
+          const moreFrag = document.createDocumentFragment();
+          cards.slice(pageSize).forEach(card => moreFrag.appendChild(renderItem(card)));
+          container.appendChild(moreFrag);
+          // 渲染剩余后需重新绑定多选选中态（针对主字卡）
+          if (opts.onAfterMore) opts.onAfterMore();
+        });
+        frag.appendChild(btn);
+      }
+      container.appendChild(frag);
+    },
 
     /* --- 主字卡面板 --- */
     _renderMainPanel() {
@@ -1057,15 +1269,18 @@ window.LoveChat = window.LoveChat || {};
       const cards = LC.CardLibrary.search('main', kw, cat);
       const list = $('#mainCardList');
       if (!list) return;
-      if (!cards.length) { list.innerHTML = '<div class="empty-card-list">没有匹配的字卡</div>'; this._updateMultiCount(); return; }
-      list.innerHTML = cards.map(c => {
-        const sel = this._multiSel.has(c.id);
-        const actions = this._multiSelMode
+      const self = this;
+      // 构造单条字卡 DOM 节点（事件在节点上直接绑定，分页"显示更多"后新节点也能工作）
+      const renderItem = (c) => {
+        const sel = self._multiSel.has(c.id);
+        const div = document.createElement('div');
+        div.className = 'card-item' + (self._multiSelMode && sel ? ' selected' : '');
+        div.dataset.id = c.id;
+        const actions = self._multiSelMode
           ? `<label class="card-check"><input type="checkbox" data-id="${esc(c.id)}" ${sel ? 'checked' : ''}><span class="checkmark"></span></label>`
           : `<button class="icon-btn edit-card" data-id="${esc(c.id)}" title="编辑"><svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>
              <button class="icon-btn del-card" data-id="${esc(c.id)}" title="删除"><svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>`;
-        return `
-        <div class="card-item${this._multiSelMode && sel ? ' selected' : ''}" data-id="${esc(c.id)}">
+        div.innerHTML = `
           <div class="card-item-content">
             <div class="card-text">${esc(c.content)}</div>
             <div class="card-meta">
@@ -1074,21 +1289,27 @@ window.LoveChat = window.LoveChat || {};
               ${c.useCount > 0 ? `<span class="card-weight">用过${c.useCount}次</span>` : ''}
             </div>
           </div>
-          <div class="card-actions">${actions}</div>
-        </div>`;
-      }).join('');
-      if (this._multiSelMode) {
-        list.querySelectorAll('.card-check input').forEach(cb => cb.addEventListener('change', (ev) => {
-          if (ev.target.checked) this._multiSel.add(cb.dataset.id);
-          else this._multiSel.delete(cb.dataset.id);
-          this._updateMultiCount();
-          // 重新渲染高亮（避免重渲染整个列表，只更新这一条的样式）
-          cb.closest('.card-item').classList.toggle('selected', ev.target.checked);
-        }));
-      } else {
-        list.querySelectorAll('.edit-card').forEach(b => b.addEventListener('click', () => this._openCardModal('main', b.dataset.id)));
-        list.querySelectorAll('.del-card').forEach(b => b.addEventListener('click', () => this._onDeleteCard('main', b.dataset.id)));
-      }
+          <div class="card-actions">${actions}</div>`;
+        // 绑定事件（多选模式 vs 普通模式）
+        if (self._multiSelMode) {
+          const cb = div.querySelector('.card-check input');
+          if (cb) cb.addEventListener('change', (ev) => {
+            if (ev.target.checked) self._multiSel.add(cb.dataset.id);
+            else self._multiSel.delete(cb.dataset.id);
+            self._updateMultiCount();
+            cb.closest('.card-item').classList.toggle('selected', ev.target.checked);
+          });
+        } else {
+          const eb = div.querySelector('.edit-card');
+          const db = div.querySelector('.del-card');
+          if (eb) eb.addEventListener('click', () => self._openCardModal('main', eb.dataset.id));
+          if (db) db.addEventListener('click', () => self._onDeleteCard('main', db.dataset.id));
+        }
+        return div;
+      };
+      this._renderCardListPaginated(list, cards, renderItem, {
+        emptyHtml: '<div class="empty-card-list">没有匹配的字卡</div>'
+      });
       this._updateMultiCount();
     },
 
@@ -1174,26 +1395,72 @@ window.LoveChat = window.LoveChat || {};
     /* --- Emoji 网格面板 --- */
     _renderEmojiPanel() {
       const cards = LC.CardLibrary.getAll('emoji');
-      const html = `<div class="grid-cards" id="emojiGrid">${
-        cards.length ? cards.map(c => `<div class="grid-card" data-id="${esc(c.id)}"><span class="gc-emoji">${esc(c.content)}</span><button class="gc-del" data-id="${esc(c.id)}">×</button></div>`).join('') : '<div class="empty-grid">还没有 Emoji，点击下方添加</div>'
-      }</div>`;
+      const html = `<div class="grid-cards" id="emojiGrid"></div>`;
       this.el.panelBody.innerHTML = html;
+      const grid = $('#emojiGrid');
+      if (!grid) return;
+      if (!cards.length) {
+        grid.innerHTML = '<div class="empty-grid">还没有 Emoji，点击下方添加</div>';
+        return;
+      }
+      const renderItem = (c) => {
+        const div = document.createElement('div');
+        div.className = 'grid-card';
+        div.dataset.id = c.id;
+        div.innerHTML = `<span class="gc-emoji">${esc(c.content)}</span><button class="gc-del" data-id="${esc(c.id)}">×</button>`;
+        return div;
+      };
+      this._renderCardListPaginated(grid, cards, renderItem, {
+        buttonClass: 'grid-show-more'
+      });
       this._bindGridCards('emoji');
     },
 
     /* --- 表情库图片网格面板 --- */
     _renderStickerPanel() {
       const cards = LC.CardLibrary.getAll('sticker').filter(c => typeof c.content === 'string' && c.content.startsWith('data:image/'));
-      const html = `<div class="grid-cards" id="stickerGrid">
+      // 头部"添加图片"按钮固定在网格首位，不参与分页
+      this.el.panelBody.innerHTML = `<div class="grid-cards" id="stickerGrid">
         <div class="grid-add" id="stickerAdd">
           <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
           <span>添加图片</span>
         </div>
-        ${cards.map(c => `<div class="grid-card" data-id="${esc(c.id)}"><img class="gc-img" src="${esc(c.content)}" onerror="this.outerHTML='<div class=&quot;gc-broken&quot;>图片损坏</div>'"><button class="gc-del" data-id="${esc(c.id)}">×</button></div>`).join('')}
       </div>`;
-      this.el.panelBody.innerHTML = html;
-      $('#stickerAdd').addEventListener('click', () => this._onAddStickerFile());
+      const grid = $('#stickerGrid');
+      const stickerAdd = $('#stickerAdd');
+      if (stickerAdd) stickerAdd.addEventListener('click', () => this._onAddStickerFile());
+      if (!grid) return;
+      if (!cards.length) return; // 头部"添加图片"按钮已渲染
+      const renderItem = (c) => {
+        const div = document.createElement('div');
+        div.className = 'grid-card';
+        div.dataset.id = c.id;
+        div.innerHTML = `<img class="gc-img" src="${esc(c.content)}" onerror="this.outerHTML='<div class=&quot;gc-broken&quot;>图片损坏</div>'"><button class="gc-del" data-id="${esc(c.id)}">×</button>`;
+        return div;
+      };
+      // 分页渲染：前 80 张 + 显示更多。注意 stickerAdd 已在容器内，append 即可
+      this._renderStickerPaginated(grid, cards, renderItem, 80);
       this._bindGridCards('sticker');
+    },
+    /* sticker 专用分页：保留头部"添加图片"按钮位置，新内容追加在其后 */
+    _renderStickerPaginated(grid, cards, renderItem, pageSize) {
+      const toRender = cards.slice(0, pageSize);
+      const remaining = cards.length - toRender.length;
+      const frag = document.createDocumentFragment();
+      toRender.forEach(c => frag.appendChild(renderItem(c)));
+      if (remaining > 0) {
+        const btn = document.createElement('button');
+        btn.className = 'card-show-more grid-show-more';
+        btn.textContent = `显示剩余 ${remaining} 条`;
+        btn.addEventListener('click', () => {
+          btn.remove();
+          const moreFrag = document.createDocumentFragment();
+          cards.slice(pageSize).forEach(c => moreFrag.appendChild(renderItem(c)));
+          grid.appendChild(moreFrag);
+        });
+        frag.appendChild(btn);
+      }
+      grid.appendChild(frag);
     },
 
     /* --- 拍一拍/状态 文字列表面板 --- */
@@ -1215,17 +1482,26 @@ window.LoveChat = window.LoveChat || {};
       if (kw) { const k = kw.toLowerCase(); cards = cards.filter(c => c.content.toLowerCase().includes(k)); }
       const list = $('#textCardList');
       if (!list) return;
-      if (!cards.length) { list.innerHTML = '<div class="empty-card-list">还没有字卡</div>'; return; }
-      list.innerHTML = cards.map(c => `
-        <div class="card-item" data-id="${esc(c.id)}">
+      const self = this;
+      const renderItem = (c) => {
+        const div = document.createElement('div');
+        div.className = 'card-item';
+        div.dataset.id = c.id;
+        div.innerHTML = `
           <div class="card-item-content"><div class="card-text">${esc(c.content)}</div></div>
           <div class="card-actions">
             <button class="icon-btn edit-card" data-id="${esc(c.id)}"><svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>
             <button class="icon-btn del-card" data-id="${esc(c.id)}"><svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>
-          </div>
-        </div>`).join('');
-      list.querySelectorAll('.edit-card').forEach(b => b.addEventListener('click', () => this._openCardModal(mod, b.dataset.id)));
-      list.querySelectorAll('.del-card').forEach(b => b.addEventListener('click', () => this._onDeleteCard(mod, b.dataset.id)));
+          </div>`;
+        const eb = div.querySelector('.edit-card');
+        const db = div.querySelector('.del-card');
+        if (eb) eb.addEventListener('click', () => self._openCardModal(mod, eb.dataset.id));
+        if (db) db.addEventListener('click', () => self._onDeleteCard(mod, db.dataset.id));
+        return div;
+      };
+      this._renderCardListPaginated(list, cards, renderItem, {
+        emptyHtml: '<div class="empty-card-list">还没有字卡</div>'
+      });
     },
 
     /* 网格卡片长按删除 */

@@ -53,6 +53,8 @@ window.LoveChat = window.LoveChat || {};
         // 5. 渲染（防御：单独 try，确保渲染互不影响）
         try { LC.UI.renderHeader(); } catch (e) { console.error('[LoveChat] renderHeader 出错:', e); }
         try { LC.UI.renderHistory(); } catch (e) { console.error('[LoveChat] renderHistory 出错:', e); }
+        // 聊天记录条数提醒（超过 5000/8000 条时提示备份，异步不阻塞启动）
+        try { LC.UI._checkHistoryReminder(); } catch (e) { console.error('[LoveChat] _checkHistoryReminder 出错:', e); }
         // 主动发消息回调接入
         LC.ChatEngine.setProactiveCbs({
           onTypingStart: () => LC.UI.showTyping(true),

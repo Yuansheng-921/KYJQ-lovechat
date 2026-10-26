@@ -41,8 +41,9 @@ LC.Letters = {
     this.letters = await LC.Storage.get('letters', []);
     this._pendingReplies = await LC.Storage.get('pendingReplies', []);
     this._nextProactiveTime = await LC.Storage.get('nextProactiveTime', 0);
-    // 启动时检查到期的回信和主动信
-    this._checkDueOnStartup();
+    // 启动时检查到期的回信和主动信（必须 await：补发完成后才会更新下次主动信时间/待回复队列，
+    // 否则 _scheduleTimers 会读到旧的已到期时间戳，delay=0 立即再触发一次，导致同一时间收到两封不同的信）
+    await this._checkDueOnStartup();
     this._scheduleTimers();
   },
 

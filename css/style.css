@@ -354,6 +354,24 @@ body.ui-hidden #multiSendModal { display: none !important; }
   padding: 3px 12px;
   border-radius: var(--radius-full);
 }
+/* 加载更多提示（顶部） */
+.load-more-indicator {
+  display: flex; align-items: center; justify-content: center;
+  padding: 12px 0 4px;
+  font-size: 11px;
+  color: var(--chat-aux-color, var(--text-muted));
+  opacity: 0.7;
+}
+.load-more-indicator.loading::before {
+  content: '';
+  display: inline-block;
+  width: 12px; height: 12px;
+  border: 2px solid currentColor; border-top-color: transparent;
+  border-radius: 50%;
+  margin-right: 6px;
+  animation: lmi-spin 0.8s linear infinite;
+}
+@keyframes lmi-spin { to { transform: rotate(360deg); } }
 
 /* 消息行 */
 .msg-row {
@@ -644,6 +662,62 @@ body.ui-hidden #multiSendModal { display: none !important; }
 }
 
 .empty-card-list { text-align: center; padding: 40px 0; color: var(--text-muted); font-size: 13px; }
+
+/* 字卡库分页"显示更多"按钮（参考 milk-main reply-library.js L701-L714 样式）
+ * 用于主字卡列表/拍一拍/状态列表：纵向占满一行 */
+.card-show-more {
+  width: 100%;
+  padding: 10px;
+  margin-top: 4px;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: var(--font-family);
+  transition: background .2s, border-color .2s, color .2s;
+}
+.card-show-more:hover { background: var(--surface); color: var(--text); border-color: var(--border-strong); }
+/* 网格布局下的"显示更多"按钮（emoji / sticker）：跨整行 */
+.grid-show-more {
+  grid-column: 1 / -1;
+  margin: 4px 0 0 0;
+}
+
+/* 聊天记录条数提醒横幅（取消条数上限后的备份引导）
+ * 纯色不透明底；深浅主题均用主题变量保证文字清晰显眼 */
+.history-reminder {
+  position: absolute;
+  top: calc(var(--header-h) + 8px);
+  left: 12px;
+  right: 12px;
+  z-index: 50;
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  padding: 12px 14px 10px;
+  animation: hrSlideDown .3s ease;
+}
+@keyframes hrSlideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.history-reminder.closing { opacity: 0; transition: opacity .2s; }
+.history-reminder .hr-main { font-size: 13px; line-height: 1.6; color: var(--text-primary); font-weight: 500; }
+.history-reminder .hr-sub { font-size: 12px; line-height: 1.6; color: var(--text-secondary); margin-top: 6px; }
+.history-reminder .hr-footer { display: flex; justify-content: flex-end; margin-top: 8px; }
+.history-reminder .hr-ok {
+  padding: 5px 14px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: var(--font-family);
+}
 
 /* 设置面板 */
 .settings-body { padding-top: 8px; }

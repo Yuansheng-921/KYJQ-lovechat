@@ -99,8 +99,16 @@ window.LoveChat = window.LoveChat || {};
       e.messageInput.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); this._onSend(); }
       });
-      // 输入展开弹窗
+      // 输入展开弹窗：focus 自动唤起 + 双击手动唤起（绕过 _suppressExpand 限制）
+      // 双击只在 inputExpand 隐藏时唤起；已显示时双击不做任何事（不关闭，只能手动点收起）
       e.messageInput.addEventListener('focus', () => { if (!this._multiMode) this._openInputExpand(); });
+      e.messageInput.addEventListener('dblclick', () => {
+        if (this._multiMode) return;
+        if (!this.el.inputExpand.hidden) return;  // 已显示 → 不动，避免双击关闭
+        // 临时清除 _suppressExpand，让 _openInputExpand 能成功唤起
+        this._suppressExpand = false;
+        this._openInputExpand();
+      });
       $('#inputExpandConfirm').addEventListener('click', () => this._closeInputExpand());
       $('#inputExpandCancel').addEventListener('click', () => this._closeInputExpand(true));
       e.inputExpandText.addEventListener('input', () => { e.messageInput.value = e.inputExpandText.value; });
@@ -252,8 +260,6 @@ window.LoveChat = window.LoveChat || {};
       $('#setProactiveIntervalMin').addEventListener('input', onProactiveRange);
       $('#setProactiveIntervalMax').addEventListener('input', onProactiveRange);
       $('#setFailCooldown').addEventListener('input', (ev) => { const v = Math.max(1, parseFloat(ev.target.value) || 3); LC.config.failCooldownMin = v; LC.Storage.set('config', LC.config); LC.ChatEngine.refreshProactive(); });
-      // 发送后自动关闭输入框
-      $('#setAutoCloseInput').addEventListener('change', (ev) => { LC.config.autoCloseInputAfterSend = ev.target.checked; LC.Storage.set('config', LC.config); });
       // 抉择弹窗
       $('#extChoiceBtn').addEventListener('click', () => this._openChoiceModal());
       // 信件投递
@@ -367,12 +373,7 @@ window.LoveChat = window.LoveChat || {};
           && !expand.contains(ev.target) && !this.el.messageInput.contains(ev.target)) {
         this._closeInputExpand(false);
       }
-      // 表情包选择器（动态创建）
-      const picker = $('#stickerPicker');
-      if (picker && !picker.hidden && picker.classList.contains('show')
-          && !picker.contains(ev.target) && !$('#stickerBtn').contains(ev.target)) {
-        this._hideModal('stickerPicker');
-      }
+      // 表情包选择器：仅点取消按钮关闭，不响应空白处点击（按需求 2.3 修复）
     },
 
     /* ============ 消息渲染 ============ */
@@ -406,7 +407,9 @@ window.LoveChat = window.LoveChat || {};
       // 仍有更早历史 → 顶部插入"向上滚动加载更多"提示
       if (start > 0) this._renderLoadMoreIndicator(false);
       this._updateMessagesLayout();
-      this._scrollBottom(true);
+      // 启动时确保滚到底：多时机兜底（双 rAF + setTimeout + window load）
+      // 应对 file:// 直开 + 字体/图片慢加载场景，任何时机没到底就再滚一次
+      this._ensureScrollBottomOnBoot();
       // 启动 IntersectionObserver 监听顶部哨兵
       this._observeLoadMore();
     },
@@ -831,6 +834,24 @@ window.LoveChat = window.LoveChat || {};
       if (instant) el.scrollTop = el.scrollHeight;
       else requestAnimationFrame(() => el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }));
     },
+    /* 启动时确保滚到底：多次兜底，应对 file:// 直开 + 字体/图片慢加载场景
+     * 任何时机只要还没到底就再滚一次；已到底则跳过 */
+    _ensureScrollBottomOnBoot() {
+      const el = this.el.messages;
+      const tryScroll = () => {
+        const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+        if (dist > 5) el.scrollTop = el.scrollHeight;
+      };
+      // 多个时机兜底：双 rAF / 0ms / 50ms / 200ms / 500ms / window load
+      requestAnimationFrame(() => requestAnimationFrame(tryScroll));
+      setTimeout(tryScroll, 0);
+      setTimeout(tryScroll, 50);
+      setTimeout(tryScroll, 200);
+      setTimeout(tryScroll, 500);
+      if (document.readyState !== 'complete') {
+        window.addEventListener('load', () => setTimeout(tryScroll, 100), { once: true });
+      }
+    },
     /* 程序触发的滚动到底部（设置 _programmaticScroll 标志以避免 _updateScrollState
        在动画过程中误判为"用户向上翻"而显示指示器） */
     _programmaticScrollBottom(instant = false) {
@@ -988,8 +1009,8 @@ window.LoveChat = window.LoveChat || {};
         onUnit: (m) => this._renderMessage(m),
         onEmpty: () => { this.showTyping(false); this._toast('字卡库还是空的～去添加一些回复吧'); setTimeout(() => this.openCardsPanel(), 800); },
       }, quote);
-      // 发送后自动关闭输入展开弹窗（仅在 inputExpand 打开 + 开关启用时）
-      if (LC.config.autoCloseInputAfterSend && !this.el.inputExpand.hidden) {
+      // 发送后自动关闭输入展开弹窗（取消开关，按需求 3.1 默认自动关闭）
+      if (!this.el.inputExpand.hidden) {
         this._closeInputExpand(false);
       }
     },
@@ -1008,9 +1029,45 @@ window.LoveChat = window.LoveChat || {};
       this.el.messageInput.focus();
       setTimeout(() => { this._suppressExpand = false; }, 200);
     },
+    /* ============ 底部功能弹窗统一关闭（三大分类互斥规则）============
+     * 底部功能（拍一拍/表情包/多条发送/更多）属于"最底层"分类
+     * 当打开字卡库或设置时，必须先关闭所有底部功能弹窗
+     * 底部 4 个弹窗之间也互斥：开新弹窗前关闭其他三个 */
+    _closeBottomPanels() {
+      // 拍一拍
+      const patM = $('#patModal');
+      if (patM && !patM.hidden) this._hideModal('patModal');
+      // 表情包
+      const stickerM = $('#stickerPicker');
+      if (stickerM && !stickerM.hidden) this._hideModal('stickerPicker');
+      // 多条发送
+      const multiM = $('#multiSendModal');
+      if (multiM && !multiM.hidden) this._closeMultiSend(false);
+      // 扩展菜单（更多）
+      this._closeExpandMenu();
+    },
+    /* 底部 4 个弹窗互斥：保留指定弹窗，关闭其他三个
+     * 参数 keep: 'patModal' | 'stickerPicker' | 'multiSendModal' | 'expandMenu' */
+    _closeBottomPanelsExcept(keep) {
+      if (keep !== 'patModal') {
+        const patM = $('#patModal');
+        if (patM && !patM.hidden) this._hideModal('patModal');
+      }
+      if (keep !== 'stickerPicker') {
+        const stickerM = $('#stickerPicker');
+        if (stickerM && !stickerM.hidden) this._hideModal('stickerPicker');
+      }
+      if (keep !== 'multiSendModal') {
+        const multiM = $('#multiSendModal');
+        if (multiM && !multiM.hidden) this._closeMultiSend(false);
+      }
+      if (keep !== 'expandMenu') this._closeExpandMenu();
+    },
 
     /* ============ 多条发送 ============ */
     _openMultiSend() {
+      // 底部 4 个弹窗互斥：开多条发送前关其他三个
+      this._closeBottomPanelsExcept('multiSendModal');
       this._multiMode = true;
       this._multiList = [];
       this._renderMultiList();
@@ -1062,7 +1119,13 @@ window.LoveChat = window.LoveChat || {};
       this.el.patQuick.innerHTML = LC.PAT_QUICK.map(p => `<span data-p="${esc(p)}">${esc(p)}</span>`).join('');
       this.el.patQuick.querySelectorAll('span').forEach(s => s.addEventListener('click', () => { this.el.patInput.value = s.dataset.p; this.el.patInput.focus(); }));
     },
-    _openPatModal() { this.el.patInput.value = ''; this._showModal('patModal'); setTimeout(() => this.el.patInput.focus(), 100); },
+    _openPatModal() {
+      // 底部 4 个弹窗互斥：开拍一拍前关其他三个
+      this._closeBottomPanelsExcept('patModal');
+      this.el.patInput.value = '';
+      this._showModal('patModal');
+      setTimeout(() => this.el.patInput.focus(), 100);
+    },
     _onPatSend() {
       const text = this.el.patInput.value.trim();
       this._hideModal('patModal');
@@ -1079,6 +1142,8 @@ window.LoveChat = window.LoveChat || {};
 
     /* ============ 表情包选择器 ============ */
     _openStickerPicker() {
+      // 底部 4 个弹窗互斥：开表情包前关其他三个
+      this._closeBottomPanelsExcept('stickerPicker');
       const stickers = LC.CardLibrary.getAll('sticker').filter(c => typeof c.content === 'string' && c.content.startsWith('data:image/'));
       if (!stickers.length) { this._toast('表情库还没有图片，去表情库添加吧'); setTimeout(() => this.openCardsPanel(), 800); return; }
       // 复用 modal 机制：动态弹窗
@@ -1118,7 +1183,12 @@ window.LoveChat = window.LoveChat || {};
     _toggleExpandMenu() {
       const sheet = this.el.expandMenuSheet;
       if (sheet.classList.contains('show')) this._closeExpandMenu();
-      else { sheet.hidden = false; requestAnimationFrame(() => sheet.classList.add('show')); }
+      else {
+        // 底部 4 个弹窗互斥：开"更多"前关其他三个
+        this._closeBottomPanelsExcept('expandMenu');
+        sheet.hidden = false;
+        requestAnimationFrame(() => sheet.classList.add('show'));
+      }
     },
     _closeExpandMenu() {
       const sheet = this.el.expandMenuSheet;
@@ -1128,7 +1198,10 @@ window.LoveChat = window.LoveChat || {};
 
     /* ============ 字卡面板 ============ */
     openCardsPanel() {
-      this._closeOther('settingsPanel');
+      // 互斥：保留自己（cardsPanel），关掉 settingsPanel
+      this._closeOther('cardsPanel');
+      // 打开字卡库前关闭所有底部功能弹窗（三大分类互斥：底部弹窗在最底层）
+      this._closeBottomPanels();
       this.el.cardsPanel.classList.add('open');
       this.el.cardsPanel.setAttribute('aria-hidden', 'false');
       this.el.overlay.hidden = false;
@@ -1315,6 +1388,8 @@ window.LoveChat = window.LoveChat || {};
 
     /* ============ 字卡批量多选 ============ */
     _toggleMultiMode() {
+      // 反向互斥：开启多选模式前关闭分类管理/导出/导入等弹窗（关闭多选时不动其他弹窗）
+      if (!this._multiSelMode) this._closeLibraryModalsExcept('multiSel');
       this._multiSelMode = !this._multiSelMode;
       // 关闭时清空选中
       if (!this._multiSelMode) this._multiSel.clear();
@@ -1656,8 +1731,29 @@ window.LoveChat = window.LoveChat || {};
       if (confirm(`确定删除？\n${preview}`)) { LC.CardLibrary.remove(module, id); this._renderPanelContent(); this._toast('已删除', 1200); }
     },
 
+    /* ============ 字卡库内顶层功能弹窗互斥 ============
+     * 规则：分类管理 / 按分类导出 / 全量导出 / 导入 这 4 个 modal 之间互斥
+     * 开一个前关掉其他三个；同时打开任意一个前如果多选模式激活要先退出多选
+     * 子分支选项（如导入弹窗里的"覆盖"/"叠加"）不算独立功能，不影响导入弹窗本身 */
+    _closeLibraryModalsExcept(keep) {
+      // 退出多选模式（清空已选 + 隐藏多选条 + 同步按钮颜色，避免 active 样式残留）
+      if (this._multiSelMode) {
+        this._multiSelMode = false;
+        this._multiSel.clear();
+        const bar = $('#multiBar'); if (bar) bar.hidden = true;
+        // 必须调用 _applyMultiMode 同步按钮 active class，否则按钮颜色不会改回
+        this._applyMultiMode();
+      }
+      // 关掉其他 modal
+      if (keep !== 'categoryModal')   this._hideModal('categoryModal');
+      if (keep !== 'exportCatModal')  this._hideModal('exportCatModal');
+      if (keep !== 'exportFullModal') this._hideModal('exportFullModal');
+      if (keep !== 'importModal')     this._hideModal('importModal');
+    },
+
     /* ============ 分类管理 ============ */
     _openCategoryModal() {
+      this._closeLibraryModalsExcept('categoryModal');
       this._renderCatList();
       this._showModal('categoryModal');
       setTimeout(() => $('#catAddInput').focus(), 100);
@@ -1723,12 +1819,14 @@ window.LoveChat = window.LoveChat || {};
       const m = $('#exportChoiceMenu'); if (!m) return; m.hidden = true; m._open = false;
     },
     _openExportCatModal() {
+      this._closeLibraryModalsExcept('exportCatModal');
       const cats = LC.CardLibrary.getAllCategories();
       const list = $('#exportCatList');
       list.innerHTML = cats.length ? cats.map(c => `<label class="check-item"><input type="checkbox" checked data-cat="${esc(c)}">${esc(c)} <span style="color:var(--text-muted);font-size:12px">(${LC.CardLibrary.countByCategory(c)})</span></label>`).join('') : '<div class="empty-card-list">无分类</div>';
       this._showModal('exportCatModal');
     },
     _openExportFullModal() {
+      this._closeLibraryModalsExcept('exportFullModal');
       const mods = Object.values(LC.MODULES);
       const list = $('#exportModList');
       list.innerHTML = mods.map(m => `<label class="check-item"><input type="checkbox" checked data-mod="${m.key}">${esc(m.name)} <span style="color:var(--text-muted);font-size:12px">(${LC.CardLibrary.getAll(m.key).length})</span></label>`).join('');
@@ -1912,7 +2010,10 @@ window.LoveChat = window.LoveChat || {};
     /* ============ 导入 ============ */
     _onImportClick() {
       // 主字卡显示两种方式；其他模块直接文件导入
-      if (this._activeModule === 'main') { this._showModal('importModal'); }
+      if (this._activeModule === 'main') {
+        this._closeLibraryModalsExcept('importModal');
+        this._showModal('importModal');
+      }
       else { this._doImport('module'); }
     },
     _doImport(mode, importMode = 'merge') {
@@ -1960,7 +2061,10 @@ window.LoveChat = window.LoveChat || {};
 
     /* ============ 设置 ============ */
     openSettingsPanel() {
-      this._closeOther('cardsPanel');
+      // 互斥：保留自己（settingsPanel），关掉 cardsPanel
+      this._closeOther('settingsPanel');
+      // 打开设置前关闭所有底部功能弹窗（三大分类互斥：底部弹窗在最底层）
+      this._closeBottomPanels();
       this.el.settingsPanel.classList.add('open');
       this.el.settingsPanel.setAttribute('aria-hidden', 'false');
       this.el.overlay.hidden = false;
@@ -2008,7 +2112,6 @@ window.LoveChat = window.LoveChat || {};
       $('#proactiveIntervalHint').textContent = `${pMin} ~ ${pMax} 分钟`;
       $('#setFailCooldown').value = LC.config.failCooldownMin || 3;
       // 输入体验
-      $('#setAutoCloseInput').checked = !!LC.config.autoCloseInputAfterSend;
       // 信件投递配置
       $('#setLetterReplyMin').value = LC.config.letterReplyMinHours ?? 17;
       $('#setLetterReplyMax').value = LC.config.letterReplyMaxHours ?? 21;

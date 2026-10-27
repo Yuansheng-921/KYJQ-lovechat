@@ -317,15 +317,15 @@ svg { display: block; }
    隐藏后屏幕右上角出现实心圆恢复按钮 */
 .ui-show-btn {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: 4px;
+  right: 4px;
   z-index: 50;
   width: 36px; height: 36px;
   border-radius: 50%;
-  background: var(--surface-elevated);
+  background: transparent;
   color: var(--accent);
   display: flex; align-items: center; justify-content: center;
-  box-shadow: var(--shadow);
+  box-shadow: none;
   cursor: pointer;
   flex-shrink: 0;
   transition: transform 0.18s var(--ease);

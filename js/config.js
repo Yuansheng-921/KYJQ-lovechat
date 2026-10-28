@@ -29,7 +29,7 @@ window.LoveChat = window.LoveChat || {};
   LC.DEFAULT_CONFIG = {
     // v3 字段：partner/user.avatar 支持字符串(emoji) 或 { url, crop } 对象
     // v6：默认 avatar 改为 ''（空），表示使用"空白小人胸像"默认头像（中性灰背景，不跟主题色）
-    partner: { name: '恋人', avatar: '' },
+    partner: { name: '未命名', avatar: '' },
     user: { name: '我', avatar: '' },
     theme: 'light',
     accentColor: '#E75480',

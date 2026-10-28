@@ -262,6 +262,8 @@ window.LoveChat = window.LoveChat || {};
       $('#setFailCooldown').addEventListener('input', (ev) => { const v = Math.max(1, parseFloat(ev.target.value) || 3); LC.config.failCooldownMin = v; LC.Storage.set('config', LC.config); LC.ChatEngine.refreshProactive(); });
       // 抉择弹窗
       $('#extChoiceBtn').addEventListener('click', () => this._openChoiceModal());
+      // 表情大乱斗（先做按钮，功能后续实现）
+      $('#extEmojiRumbleBtn').addEventListener('click', () => { this._toast('表情大乱斗开发中～'); this._closeExpandMenu(); });
       // 信件投递
       $('#extLettersBtn').addEventListener('click', () => this._openLetterScreen());
       $('#letterCloseBtn').addEventListener('click', () => this._closeLetterScreen());
@@ -1020,11 +1022,15 @@ window.LoveChat = window.LoveChat || {};
       if (this._suppressExpand) return;
       this.el.inputExpand.hidden = false;
       this.el.inputExpandText.value = this.el.messageInput.value;
+      // 扩展框打开时禁用 messageInput：光标只能在扩展框里移动
+      this.el.messageInput.disabled = true;
       setTimeout(() => this.el.inputExpandText.focus(), 50);
     },
     _closeInputExpand(cancel) {
       if (!cancel) { this.el.messageInput.value = this.el.inputExpandText.value; }
       this.el.inputExpand.hidden = true;
+      // 扩展框关闭时恢复 messageInput 可用
+      this.el.messageInput.disabled = false;
       this._suppressExpand = true;
       this.el.messageInput.focus();
       setTimeout(() => { this._suppressExpand = false; }, 200);
@@ -1069,12 +1075,16 @@ window.LoveChat = window.LoveChat || {};
       // 底部 4 个弹窗互斥：开多条发送前关其他三个
       this._closeBottomPanelsExcept('multiSendModal');
       this._multiMode = true;
-      this._multiList = [];
+      // 不再无条件清空 _multiList：如果上次是被弹窗强制关闭（_closeMultiSend(false)），
+      // 暂存的消息需要保留，下次重新打开时还能看到
+      // 只有发送成功（_multiSend 内清空）或用户主动点取消（_closeMultiSend(true)）才会清空
       this._renderMultiList();
       this._showModal('multiSendModal');
       this.el.messageInput.focus();
     },
     _closeMultiSend(cancel) {
+      // cancel=true：用户主动点取消，清空暂存消息
+      // cancel=false：被弹窗强制关闭或点击空白，保留暂存消息
       if (cancel) this._multiList = [];
       this._multiMode = false;
       this._hideModal('multiSendModal');

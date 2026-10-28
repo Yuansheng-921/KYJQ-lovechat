@@ -112,6 +112,10 @@ window.LoveChat = window.LoveChat || {};
       $('#inputExpandConfirm').addEventListener('click', () => this._closeInputExpand());
       $('#inputExpandCancel').addEventListener('click', () => this._closeInputExpand(true));
       e.inputExpandText.addEventListener('input', () => { e.messageInput.value = e.inputExpandText.value; });
+      // 双向同步：在输入框打字时，扩展框内容实时保持一致（两边都能编辑）
+      e.messageInput.addEventListener('input', () => {
+        if (!e.inputExpand.hidden) e.inputExpandText.value = e.messageInput.value;
+      });
       e.inputExpandText.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); this._onSend(); }
       });
@@ -387,7 +391,9 @@ window.LoveChat = window.LoveChat || {};
     _loadMoreObserver: null,   // IntersectionObserver 实例（监听顶部哨兵）
     renderHistory() {
       const h = LC.ChatEngine.getHistory();
-      this.el.messagesScroll.innerHTML = '';
+      const scrollInner = this.el.messagesScroll;
+      const container = this.el.messages;
+      scrollInner.innerHTML = '';
       this._loadingMore = false;
       if (!h.length) {
         this._loadedCount = 0;
@@ -409,8 +415,8 @@ window.LoveChat = window.LoveChat || {};
       // 仍有更早历史 → 顶部插入"向上滚动加载更多"提示
       if (start > 0) this._renderLoadMoreIndicator(false);
       this._updateMessagesLayout();
-      // 启动时确保滚到底：多时机兜底（双 rAF + setTimeout + window load）
-      // 应对 file:// 直开 + 字体/图片慢加载场景，任何时机没到底就再滚一次
+      // 直接滚到底（file:// 直开时布局可能未完成，由 _ensureScrollBottomOnBoot 多时机兜底）
+      container.scrollTop = container.scrollHeight;
       this._ensureScrollBottomOnBoot();
       // 启动 IntersectionObserver 监听顶部哨兵
       this._observeLoadMore();
@@ -1020,17 +1026,15 @@ window.LoveChat = window.LoveChat || {};
     /* ============ 输入展开弹窗 ============ */
     _openInputExpand() {
       if (this._suppressExpand) return;
+      // 已打开 → 不动（避免重复同步内容、避免抢走输入框光标）
+      if (!this.el.inputExpand.hidden) return;
       this.el.inputExpand.hidden = false;
+      // 首次打开时把输入框内容带到扩展框；此后两边实时双向同步，光标点哪边就在哪边编辑
       this.el.inputExpandText.value = this.el.messageInput.value;
-      // 扩展框打开时禁用 messageInput：光标只能在扩展框里移动
-      this.el.messageInput.disabled = true;
-      setTimeout(() => this.el.inputExpandText.focus(), 50);
     },
     _closeInputExpand(cancel) {
-      if (!cancel) { this.el.messageInput.value = this.el.inputExpandText.value; }
+      // 双向同步下两边内容一致，关闭时无需再搬运内容（cancel 参数保留兼容旧调用）
       this.el.inputExpand.hidden = true;
-      // 扩展框关闭时恢复 messageInput 可用
-      this.el.messageInput.disabled = false;
       this._suppressExpand = true;
       this.el.messageInput.focus();
       setTimeout(() => { this._suppressExpand = false; }, 200);

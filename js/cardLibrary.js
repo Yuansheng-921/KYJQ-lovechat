@@ -69,6 +69,60 @@ window.LoveChat = window.LoveChat || {};
       for (const k of MODULE_KEYS) if (!this._recent[k]) this._recent[k] = [];
       // 加载空分类记录
       this._emptyCats = (await Storage.get('emptyCats', [])) || [];
+      // 迁移：旧格式空分类是裸名字（main 专属），新格式为 "模块::分类名"
+      let catMigrated = false;
+      this._emptyCats = this._emptyCats.map(k => {
+        if (typeof k === 'string' && !k.includes('::')) { catMigrated = true; return 'main::' + k; }
+        return k;
+      });
+      if (catMigrated) Storage.set('emptyCats', this._emptyCats);
+      // 系统拼词小分类占位（格式 "大分类::小分类"，只记录没有字卡的空小分类）
+      this._wordSubCats = (await Storage.get('wordSubCats', [])) || [];
+      // 系统拼词：自动补齐 8 个固定分类（空分类占位，只补缺失的）
+      for (const name of LC.WORD_SYS_CATS) this.addCategory(name, 'systemWord');
+      // ★ 一次性补发系统拼词预设字卡（v1）：老用户本地已有数据，首次启动载入不到预设，
+      //   这里补一次（只补"大分类+小分类+内容"都不重复的卡，不动已有卡）；
+      //   标志位保证只补这一次——之后用户删掉的预设卡不会复活
+      if (!(await Storage.get('sysWordPresetsV1', false))) {
+        const presets = LC.DEFAULT_CARDS.systemWord || [];
+        const existing = new Set((this.data.systemWord || [])
+          .map(c => c.category + '::' + c.subCat + '::' + c.content));
+        let added = 0;
+        for (const p of presets) {
+          if (existing.has(p.category + '::' + p.subCat + '::' + p.content)) continue;
+          this.data.systemWord.push(this._norm(p, 'systemWord', this.data.systemWord.length));
+          added++;
+        }
+        if (added) this.save();
+        Storage.set('sysWordPresetsV1', true);
+      }
+      // ★ 一次性补发情绪辅助预设（v1）：同上，按内容去重只补缺的，只补这一次
+      //   （情绪辅助无分类，去重键 = 卡片内容本身）
+      if (!(await Storage.get('moodAssistPresetsV1', false))) {
+        const presets = LC.DEFAULT_CARDS.moodAssist || [];
+        const existing = new Set((this.data.moodAssist || []).map(c => c.content));
+        let added = 0;
+        for (const p of presets) {
+          if (existing.has(p.content)) continue;
+          this.data.moodAssist.push(this._norm(p, 'moodAssist', this.data.moodAssist.length));
+          added++;
+        }
+        if (added) this.save();
+        Storage.set('moodAssistPresetsV1', true);
+      }
+      // ★ 一次性补发关联词辅助预设（v1）：同上，按内容去重只补缺的，只补这一次
+      if (!(await Storage.get('logicAssistPresetsV1', false))) {
+        const presets = LC.DEFAULT_CARDS.logicAssist || [];
+        const existing = new Set((this.data.logicAssist || []).map(c => c.content));
+        let added = 0;
+        for (const p of presets) {
+          if (existing.has(p.content)) continue;
+          this.data.logicAssist.push(this._norm(p, 'logicAssist', this.data.logicAssist.length));
+          added++;
+        }
+        if (added) this.save();
+        Storage.set('logicAssistPresetsV1', true);
+      }
       // 加载当前状态
       this._currentStatus = await Storage.get('currentStatus', null);
     },
@@ -83,6 +137,8 @@ window.LoveChat = window.LoveChat || {};
         module,
         content: String(card.content ?? card.text ?? '').trim(),
         category: mod.hasCategory ? (String(card.category || '').trim() || '未分类') : '',
+        // 系统拼词小分类（大分类下的分支，仅整理用，不参与抽取）
+        subCat: (module === 'systemWord') ? String(card.subCat || '').trim() : '',
         weight: Math.max(1, Math.min(10, Number(card.weight) || 1)),
         createdAt: card.createdAt || Date.now(),
         useCount: card.useCount || 0,
@@ -141,7 +197,7 @@ window.LoveChat = window.LoveChat || {};
       return true;
     },
 
-    /* ---- 分类管理（仅 main 模块） ---- */
+    /* ---- 分类管理（支持分类的模块：main / customWord / systemWord） ---- */
 
     getCategories(module = 'main') {
       const set = new Set();
@@ -152,10 +208,11 @@ window.LoveChat = window.LoveChat || {};
     },
 
     /** 重命名分类 */
-    renameCategory(oldName, newName) {
+    renameCategory(oldName, newName, module = 'main') {
+      if (module === 'systemWord' && LC.WORD_SYS_CATS.includes(oldName)) return false; // 8 个固定分类不可改名
       newName = String(newName || '').trim();
       if (!newName || newName === oldName) return false;
-      for (const c of this.data.main || []) {
+      for (const c of this.data[module] || []) {
         if (c.category === oldName) c.category = newName;
       }
       this.save();
@@ -163,27 +220,32 @@ window.LoveChat = window.LoveChat || {};
     },
 
     /** 删除分类（其下字卡归入"未分类"） */
-    deleteCategory(name) {
-      for (const c of this.data.main || []) {
+    deleteCategory(name, module = 'main') {
+      if (module === 'systemWord' && LC.WORD_SYS_CATS.includes(name)) return false; // 8 个固定分类不可删除
+      for (const c of this.data[module] || []) {
         if (c.category === name) c.category = '未分类';
       }
-      // 同步从空分类占位数组移除，否则 getAllCategories 仍会把已删除的空分类名返回
+      // 同步从空分类占位数组移除（存储格式为 "模块::分类名"）
       if (Array.isArray(this._emptyCats)) {
-        this._emptyCats = this._emptyCats.filter(n => n !== name);
+        const key = module + '::' + name;
+        this._emptyCats = this._emptyCats.filter(n => n !== key);
         Storage.set('emptyCats', this._emptyCats);
       }
       this.save();
       return true;
     },
 
-    /** 添加分类（创建空分类占位：加一条空内容字卡？不需要——分类由字卡动态生成。
-     *  为支持"添加空分类"，用 _emptyCats 记录空分类名 */
+    /** 添加分类（创建空分类占位）
+     *  用 _emptyCats 记录空分类名（按"模块::分类名"存储，区分不同模块的同名分类） */
     _emptyCats: [],
-    addCategory(name) {
+    addCategory(name, module = 'main') {
       name = String(name || '').trim();
       if (!name) return false;
-      if (!this._emptyCats.includes(name) && !this.getCategories().includes(name)) {
-        this._emptyCats.push(name);
+      // 系统拼词分类固定为 8 个，只允许程序自动补齐这 8 个，不允许用户新增
+      if (module === 'systemWord' && !LC.WORD_SYS_CATS.includes(name)) return false;
+      const key = module + '::' + name;
+      if (!this._emptyCats.includes(key) && !this.getCategories(module).includes(name)) {
+        this._emptyCats.push(key);
         Storage.set('emptyCats', this._emptyCats);
         return true;
       }
@@ -191,26 +253,86 @@ window.LoveChat = window.LoveChat || {};
     },
 
     /** 获取分类列表（含空分类） */
-    getAllCategories() {
-      const live = this.getCategories();
-      const all = new Set([...live, ...(this._emptyCats || [])]);
+    getAllCategories(module = 'main') {
+      const live = this.getCategories(module);
+      const prefix = module + '::';
+      const empties = (this._emptyCats || []).filter(k => k.startsWith(prefix)).map(k => k.slice(prefix.length));
+      const all = new Set([...live, ...empties]);
       return Array.from(all);
     },
 
     /** 分类下字卡数 */
-    countByCategory(name) {
-      if (name === '全部字卡') return (this.data.main || []).length;
-      if (name === '未分类字卡') return (this.data.main || []).filter(c => !c.category || c.category === '未分类').length;
-      return (this.data.main || []).filter(c => c.category === name).length;
+    countByCategory(name, module = 'main') {
+      if (name === '全部字卡') return (this.data[module] || []).length;
+      if (name === '未分类字卡') return (this.data[module] || []).filter(c => !c.category || c.category === '未分类').length;
+      return (this.data[module] || []).filter(c => c.category === name).length;
     },
 
-    /* ---- 查重去重（main 模块） ----
+    /* ---- 系统拼词小分类（大分类下的分支，仅 systemWord 模块） ----
+     * 存储：_wordSubCats 记录空小分类占位（"大分类::小分类"），
+     * 卡片上实际出现的小分类自动并入列表（导入的字卡无需占位也能显示） */
+
+    /** 某大分类下的小分类列表（占位在前=建立顺序，卡片上的实际小分类在后） */
+    getSubCats(cat) {
+      const live = new Set();
+      for (const c of (this.data.systemWord || [])) {
+        if (c.category === cat && c.subCat) live.add(c.subCat);
+      }
+      const prefix = cat + '::';
+      const empties = (this._wordSubCats || []).filter(k => k.startsWith(prefix)).map(k => k.slice(prefix.length));
+      return Array.from(new Set([...empties, ...live]));
+    },
+
+    /** 添加小分类（在指定大分类下建空占位） */
+    addSubCat(cat, name) {
+      name = String(name || '').trim();
+      if (!name || !LC.WORD_SYS_CATS.includes(cat)) return false;
+      const key = cat + '::' + name;
+      if (this._wordSubCats.includes(key) || this.getSubCats(cat).includes(name)) return false;
+      this._wordSubCats.push(key);
+      Storage.set('wordSubCats', this._wordSubCats);
+      return true;
+    },
+
+    /** 重命名小分类（同步更新该大分类下字卡的 subCat） */
+    renameSubCat(cat, oldName, newName) {
+      newName = String(newName || '').trim();
+      if (!newName || newName === oldName) return false;
+      const oldKey = cat + '::' + oldName, newKey = cat + '::' + newName;
+      const i = this._wordSubCats.indexOf(oldKey);
+      if (i >= 0) { this._wordSubCats[i] = newKey; Storage.set('wordSubCats', this._wordSubCats); }
+      for (const c of this.data.systemWord || []) {
+        if (c.category === cat && c.subCat === oldName) c.subCat = newName;
+      }
+      this.save();
+      return true;
+    },
+
+    /** 删除小分类（其下字卡的 subCat 清空，归入"未分类字卡"） */
+    deleteSubCat(cat, name) {
+      const key = cat + '::' + name;
+      this._wordSubCats = (this._wordSubCats || []).filter(k => k !== key);
+      Storage.set('wordSubCats', this._wordSubCats);
+      for (const c of this.data.systemWord || []) {
+        if (c.category === cat && c.subCat === name) c.subCat = '';
+      }
+      this.save();
+      return true;
+    },
+
+    /** 某大分类下某小分类的字卡数（subCat 传 '' 统计"未分类字卡"） */
+    countBySubCat(cat, subCat) {
+      return (this.data.systemWord || []).filter(c =>
+        c.category === cat && (subCat ? c.subCat === subCat : !c.subCat)).length;
+    },
+
+    /* ---- 查重去重（支持分类的模块） ----
      * 规则：同内容字卡只保留一份。
      * 若一份字卡同时出现在"未分类"和其他分类，优先删除"未分类"里的那一份，
      * 保留有具体分类的那一份。
      */
-    dedup() {
-      const arr = this.data.main || [];
+    dedup(module = 'main') {
+      const arr = this.data[module] || [];
       // 第一遍：判断每条内容是否在"非未分类"分类里出现过
       const hasCategorized = new Set();
       for (const c of arr) {
@@ -233,22 +355,22 @@ window.LoveChat = window.LoveChat || {};
         seen.add(key);
         kept.push(c);
       }
-      this.data.main = kept;
+      this.data[module] = kept;
       this.save();
       return { removed: removed.length, total: arr.length };
     },
 
-    /* ---- 全局查重去重（所有模块：回复库 + 氛围感） ----
-     * main 模块走 dedup()（带分类优先级）
+    /* ---- 全局查重去重（所有模块：回复库 + 氛围感 + 拼词库） ----
+     * 支持分类的模块（main/customWord/systemWord）走 dedup()（带分类优先级）
      * 其他模块（emoji/sticker/pat/status）走简单内容去重（保留首次出现）
      */
     dedupAll() {
       const result = {};
       let totalRemoved = 0;
       for (const m of MODULE_KEYS) {
-        if (m === 'main') {
-          const r = this.dedup();
-          result.main = r;
+        if (LC.MODULES[m] && LC.MODULES[m].hasCategory) {
+          const r = this.dedup(m);
+          result[m] = r;
           totalRemoved += r.removed;
         } else {
           const arr = this.data[m] || [];
@@ -277,7 +399,12 @@ window.LoveChat = window.LoveChat || {};
     /* ---- 搜索 ---- */
     search(module, keyword, category) {
       let r = this.data[module] || [];
-      if (category === '未分类字卡') r = r.filter(c => !c.category || c.category === '未分类');
+      if (category === '未分类字卡') {
+        // 系统拼词：大分类级"未分类字卡" = 只放没选任何大分类的卡；
+        // 分了大类但没分小类的卡 → 在各大分类自己的"未分类字卡"小分类里看（见 ui._filterBySubCat）
+        if (module === 'systemWord') r = r.filter(c => !LC.WORD_SYS_CATS.includes(c.category));
+        else r = r.filter(c => !c.category || c.category === '未分类');
+      }
       else if (category && category !== '全部字卡') r = r.filter(c => c.category === category);
       if (keyword) {
         const kw = keyword.toLowerCase();
@@ -287,13 +414,29 @@ window.LoveChat = window.LoveChat || {};
     },
 
     /* ---- 加权抽取 ---- */
+    /** 按给定 id 顺序重排模块（表情库拖拽排序用）
+     *  ids = 当前可见项的新顺序；不可见项（未加载分页/损坏数据）保持原相对顺序排在后面 */
+    reorder(module, ids) {
+      if (!Array.isArray(ids) || !this.data[module]) return;
+      const set = new Set(ids);
+      const byId = {};
+      for (const c of this.data[module]) byId[c.id] = c;
+      const ordered = ids.map(id => byId[id]).filter(Boolean);
+      if (!ordered.length) return;
+      const rest = this.data[module].filter(c => !set.has(c.id));
+      this.data[module] = [...ordered, ...rest];
+      this.save();
+    },
+
     selectRandom(module, opts = {}) {
-      const arr = this.data[module] || [];
+      // module 支持字符串或数组（数组 = 合并多个模块的卡池，如 主字卡+限制字卡）
+      const mods = Array.isArray(module) ? module : [module];
+      const arr = mods.flatMap(m => this.data[m] || []);
       if (!arr.length) return null;
       const excludeRecent = opts.excludeRecent !== false && LC.config.antiRepeat;
       const win = LC.config.antiRepeatWindow || 5;
       let pool = [...arr];
-      const recent = this._recent[module] || [];
+      const recent = mods.flatMap(m => this._recent[m] || []);
       if (excludeRecent && recent.length && pool.length > 1) {
         pool = pool.filter(c => !recent.includes(c.id));
         if (!pool.length) pool = [...arr];
@@ -304,9 +447,11 @@ window.LoveChat = window.LoveChat || {};
       for (const c of pool) { r -= (c.weight || 1); if (r <= 0) { sel = c; break; } }
       sel.useCount = (sel.useCount || 0) + 1;
       sel.lastUsedAt = Date.now();
-      if (!this._recent[module]) this._recent[module] = [];
-      this._recent[module].push(sel.id);
-      while (this._recent[module].length > Math.min(win, arr.length - 1)) this._recent[module].shift();
+      // 使用记录标记到所选卡实际所属的模块（防重复窗口按各模块自己算）
+      const selMod = mods.find(m => (this.data[m] || []).some(c => c === sel)) || mods[0];
+      if (!this._recent[selMod]) this._recent[selMod] = [];
+      this._recent[selMod].push(sel.id);
+      while (this._recent[selMod].length > Math.min(win, (this.data[selMod] || []).length - 1)) this._recent[selMod].shift();
       this._saveRecent();
       this.save();
       return sel;
@@ -332,16 +477,17 @@ window.LoveChat = window.LoveChat || {};
 
     /* ---- 导出 ---- */
 
-    /** 按分类导出（主字卡，可选分类） */
-    exportByCategory(selectedCats) {
-      const cats = selectedCats && selectedCats.length ? selectedCats : this.getAllCategories();
+    /** 按分类导出（支持分类的模块，可选分类）
+     *  JSON 中带 module 标记，导入时据此自动分辨是主字卡还是拼词库哪一类 */
+    exportByCategory(selectedCats, module = 'main') {
+      const cats = selectedCats && selectedCats.length ? selectedCats : this.getAllCategories(module);
       const grouped = {};
       for (const cat of cats) {
-        grouped[cat] = (this.data.main || [])
+        grouped[cat] = (this.data[module] || [])
           .filter(c => c.category === cat)
-          .map(c => ({ content: c.content, category: c.category, weight: c.weight }));
+          .map(c => ({ content: c.content, category: c.category, weight: c.weight, subCat: (module === 'systemWord' ? (c.subCat || '') : undefined) }));
       }
-      return JSON.stringify({ version: 2, mode: 'byCategory', grouped }, null, 2);
+      return JSON.stringify({ version: 2, mode: 'byCategory', module, grouped }, null, 2);
     },
 
     /** 全量导出（可选模块） */
@@ -354,6 +500,7 @@ window.LoveChat = window.LoveChat || {};
           content: c.content,
           category: LC.MODULES[m].hasCategory ? c.category : undefined,
           weight: c.weight,
+          subCat: (m === 'systemWord' ? (c.subCat || '') : undefined),
         }));
       }
       return JSON.stringify(out, null, 2);
@@ -366,17 +513,24 @@ window.LoveChat = window.LoveChat || {};
 
     /* ---- 导入 ---- */
 
-    /** 按分组导入（分类文件 → 主字卡，保留分组）
-     *  mode: 'merge' 添加（在现有基础上追加，默认）| 'replace' 覆盖（清空全部主字卡与分类后替换） */
-    importByGroup(jsonText, mode = 'merge') {
+    /** 按分类导入（分类文件 → 对应模块，保留分类）
+     *  mode: 'merge' 添加（在现有基础上追加，默认）| 'replace' 覆盖（清空该模块全部字卡与分类后替换）
+     *  target: 导入目标 —— 'main'（主字卡）| 'word'（拼词库）
+     *    拼词库导入时自动识别：文件带 module 标记（customWord/systemWord）则导入对应模块，
+     *    无标记的文件（如外部手写文件）默认导入自定义拼词 */
+    importByGroup(jsonText, mode = 'merge', target = 'main') {
       let data;
       try { data = JSON.parse(jsonText); } catch (e) { return { ok: false, error: 'JSON 格式错误：' + e.message }; }
+      // 确定导入目标模块
+      let module = (data.module && LC.MODULES[data.module] && LC.MODULES[data.module].hasCategory)
+        ? data.module
+        : (target === 'word' ? 'customWord' : 'main');
       // 先解析出待导入条目（格式不符直接返回，不动旧数据，避免覆盖模式误删）
       const incoming = [];
       if (data.mode === 'byCategory' && data.grouped) {
         for (const [cat, cards] of Object.entries(data.grouped)) {
           for (const c of (Array.isArray(cards) ? cards : [])) {
-            if (c.content) incoming.push({ content: c.content, category: cat, weight: c.weight });
+            if (c.content) incoming.push({ content: c.content, category: cat, weight: c.weight, subCat: c.subCat });
           }
         }
       } else if (Array.isArray(data.customReplyGroups)) {
@@ -404,17 +558,20 @@ window.LoveChat = window.LoveChat || {};
       } else {
         return { ok: false, error: '文件格式不符（需按分类导出文件）' };
       }
-      // 覆盖模式：确认文件可用后，才删除全部现有主字卡和分类
+      // 覆盖模式：确认文件可用后，才删除该模块现有字卡和分类
       if (mode === 'replace') {
-        this.data.main = [];
-        this._emptyCats = [];
-        Storage.set('emptyCats', this._emptyCats);
-        if (this._recent && this._recent.main) this._recent.main = [];
+        this.data[module] = [];
+        if (this._emptyCats) {
+          const prefix = module + '::';
+          this._emptyCats = this._emptyCats.filter(n => !n.startsWith(prefix));
+          Storage.set('emptyCats', this._emptyCats);
+        }
+        if (this._recent && this._recent[module]) this._recent[module] = [];
         this._saveRecent();
         this.save();
       }
       // 添加模式：用 Set 收集原文件已有 content，跳过已存在项，避免重复追加
-      const existing = (mode === 'merge') ? new Set((this.data.main || []).map(c => c.content)) : null;
+      const existing = (mode === 'merge') ? new Set((this.data[module] || []).map(c => c.content)) : null;
       const incomingSeen = (mode === 'merge') ? new Set() : null;
       let added = 0;
       for (const item of incoming) {
@@ -423,9 +580,9 @@ window.LoveChat = window.LoveChat || {};
           if (existing.has(item.content) || incomingSeen.has(item.content)) continue;
           incomingSeen.add(item.content);
         }
-        if (this.add('main', item)) added++;
+        if (this.add(module, item)) added++;
       }
-      return { ok: true, added, replaced: mode === 'replace' };
+      return { ok: true, added, replaced: mode === 'replace', module };
     },
 
     /** 全量导入（各模块分别导入） */
@@ -448,7 +605,7 @@ window.LoveChat = window.LoveChat || {};
             if (existing.has(c.content) || incomingSeen.has(c.content)) continue;
             incomingSeen.add(c.content);
           }
-          this.add(m, { content: c.content, category: c.category, weight: c.weight });
+          this.add(m, { content: c.content, category: c.category, weight: c.weight, subCat: c.subCat });
           added++;
         }
       }
@@ -471,7 +628,7 @@ window.LoveChat = window.LoveChat || {};
           if (existing.has(c.content) || incomingSeen.has(c.content)) continue;
           incomingSeen.add(c.content);
         }
-        this.add(module, { content: c.content, category: c.category, weight: c.weight });
+        this.add(module, { content: c.content, category: c.category, weight: c.weight, subCat: c.subCat });
         added++;
       }
       return { ok: true, added, replaced: mode === 'replace' };

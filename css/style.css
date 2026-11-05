@@ -238,6 +238,11 @@ svg { display: block; }
 .icon-btn:hover { background: rgba(var(--accent-rgb), 0.1); color: var(--accent); }
 .icon-btn:active { transform: scale(0.92); }
 
+/* 限制模式开关（聊天左上角心形按钮）：
+   默认（限制关闭）= 主题色实心爱心；开启限制 = 灰色实心爱心 */
+.restrict-btn { color: var(--accent); }
+.restrict-btn.on { color: var(--text-muted); }
+
 /* ===== 5. 消息气泡 ===== */
 .messages {
   flex: 1;
@@ -409,6 +414,23 @@ body.ui-hidden #multiSendModal { display: none !important; }
   margin-top: 2px;
   padding: 0 4px;
   text-shadow: 0 1px 2px rgba(0,0,0,0.15);
+}
+/* ===== 消息气泡内辅助标签（自由造句 / 关联词 / 情绪） =====
+   设计要求（用户）：相对中立——适配自定义气泡颜色与浅色/深色主题。
+   做法：文字与虚线用 currentColor 跟随气泡文字色（自定义气泡改文字色也能跟着变），
+   小气泡底色用中性灰半透明（不依赖主题色，深浅底都可见） */
+.assist-tags { margin-top: 6px; }
+.assist-divider { border-top: 1px dashed currentColor; opacity: .35; margin-bottom: 6px; }
+.assist-tag {
+  display: inline-block;
+  margin: 0 4px 4px 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 18px;
+  background: rgba(127, 127, 127, .15);
+  color: currentColor;
+  opacity: .82;
 }
 .msg-row.me .msg-time { text-align: right; }
 /* 气泡与时间解耦：气泡纯按内容宽度，时间贴气泡边缘对齐
@@ -745,6 +767,18 @@ body.ui-hidden #multiSendModal { display: none !important; }
 }
 /* 深色主题：设置分组标题改为接近白色的超浅灰（非纯白） */
 [data-theme="dark"] .settings-group-title { color: #E8E8E8; }
+/* 分组标题右侧的折叠/展开小倒三角（对话体验页） */
+.group-fold-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-secondary); font-size: 11px; line-height: 1;
+  padding: 3px 6px; margin-left: 6px; vertical-align: middle;
+  border-radius: 4px; transition: transform .2s var(--ease-out), color .15s;
+}
+.group-fold-btn:hover { color: var(--accent); }
+/* 折叠后三角转向右 */
+.group-fold-btn.folded { transform: rotate(-90deg); }
+/* 折叠状态：隐藏该组全部设置，只留标题行 */
+.settings-group-body.folded { display: none; }
 /* 数据 Tab 专用样式 */
 .data-note {
   font-size: 12px; line-height: 1.6; color: var(--text-secondary);
@@ -1213,6 +1247,53 @@ body.ui-hidden #multiSendModal { display: none !important; }
   transition: all 0.2s;
 }
 .cat-chip.active { background: var(--accent-gradient); color: #fff; border-color: transparent; }
+/* 系统拼词：已禁用的分类标签（长按切换） */
+.cat-chip.chip-disabled { opacity: .5; }
+.chip-disable-badge {
+  display: inline-block; margin-left: 4px; padding: 0 5px;
+  font-size: 10px; line-height: 16px; border-radius: 8px;
+  background: #e5484d; color: #fff; vertical-align: 1px;
+}
+/* 系统拼词：查看已禁用分类时的置灰画面 */
+.card-list.cat-filter-disabled .card-item { opacity: .38; filter: grayscale(1); }
+.cat-disabled-hint {
+  margin: 6px 12px 0; padding: 8px 10px; border-radius: 10px;
+  font-size: 12px; text-align: center;
+  background: rgba(229, 72, 77, .12); color: #d64550;
+}
+[data-theme="dark"] .cat-disabled-hint { background: rgba(229, 72, 77, .22); color: #ff9296; }
+
+/* ---- 系统拼词：小分类气泡行 + 弹窗内大分类选择行 ---- */
+.sub-cat-chips { padding-top: 0; }
+.sub-cat-chips .cat-chip { height: 24px; padding: 0 10px; font-size: 11px; opacity: .92; }
+.sub-cat-chips .cat-chip.active { opacity: 1; }
+.sys-cat-row {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-bottom: 12px;
+}
+.sys-cat-row .cat-chip { height: 26px; }
+/* 分组弹窗里可点选的分类行 */
+.cat-item.pick { cursor: pointer; transition: background .15s, border-color .15s; }
+.cat-item.pick:active, .cat-item.pick:hover { border-color: var(--accent); background: rgba(var(--accent-rgb), .08); }
+.cat-item.pick .ci-name::after { content: '→'; margin-left: 6px; font-size: 12px; color: var(--text-tertiary, #aaa); }
+
+/* 情绪辅助 / 逻辑关联词辅助的应用范围选项（开关开启时显示在其下方） */
+.assist-scope-row[hidden] { display: none; }
+.assist-scope-opts { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0 6px; }
+.assist-opt {
+  height: 26px; padding: 0 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: border-color .15s, color .15s, background .15s;
+}
+.assist-opt.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), .08);
+}
 
 /* ---- Emoji / 表情库 网格 ---- */
 .grid-cards {
@@ -1246,6 +1327,36 @@ body.ui-hidden #multiSendModal { display: none !important; }
 }
 .grid-card.show-del .gc-del { display: flex; }
 .grid-card .gc-del:hover { background: #e74c3c; }
+/* ===== 表情库：多选 / 移动 / 删除 ===== */
+/* 管理按钮行（子标签行下方） */
+.sticker-mgmt-bar { display: flex; gap: 8px; margin-bottom: 10px; }
+.st-mgmt-btn {
+  height: 30px; padding: 0 16px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-solid);
+  color: var(--text-secondary);
+  font-size: 12px;
+  transition: all .15s;
+}
+.st-mgmt-btn.active { background: var(--accent-gradient); border-color: transparent; color: #fff; }
+/* 选择模式：选中图片高亮 + 左上角序号角标（显示选择顺序） */
+.grid-card.st-selected { outline: 2px solid var(--accent); outline-offset: -2px; }
+.grid-card.st-selected::after {
+  content: attr(data-sel-idx);
+  position: absolute; top: 3px; left: 3px;
+  min-width: 16px; height: 16px;
+  border-radius: 8px;
+  background: var(--accent); color: #fff;
+  font-size: 10px; line-height: 16px; text-align: center;
+  z-index: 2;
+}
+/* 移动模式：全部图片蒙灰压暗，目标图片恢复亮度并高亮 */
+#stickerGrid.mode-move .grid-card { filter: brightness(.5) saturate(.6); }
+#stickerGrid.mode-move .grid-card.st-target { filter: none; outline: 2px solid var(--accent); outline-offset: -2px; }
+/* 目标图片旁的"放在前面/后面"选项复用导出浮窗样式 .popup-menu / .popup-item */
+/* 删除确认弹窗文字 */
+.st-del-text { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
 .gc-broken {
   display: flex; align-items: center; justify-content: center;
   width: 100%; height: 100%;
@@ -1960,3 +2071,68 @@ body.ui-hidden #multiSendModal { display: none !important; }
   .bubble-preview { flex: 0 0 auto; }
   .bubble-css-input { min-height: 160px; }
 }
+
+/* ============================================================
+ * 密码锁屏（进入网站先输密码；固定浅粉配色，不随主题变化）
+ * ============================================================ */
+.lock-screen {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(165deg, #FFF5F7 0%, #FFE6EF 55%, #FFDCE9 100%);
+  transition: opacity 0.4s ease;
+}
+.lock-screen.lock-pass { opacity: 0; pointer-events: none; }
+.lock-box {
+  display: flex; flex-direction: column; align-items: center;
+  width: min(300px, 82vw);
+  animation: lockIn 0.5s ease;
+}
+@keyframes lockIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.lock-icon {
+  font-size: 46px; line-height: 1;
+  filter: drop-shadow(0 3px 6px rgba(180, 100, 130, 0.25));
+}
+.lock-title {
+  font-family: 'ZCOOL XiaoWei', serif;
+  font-size: 30px; color: #B4436B;
+  margin: 10px 0 2px;
+  letter-spacing: 4px; text-indent: 4px; /* 补偿字间距让文字居中 */
+}
+.lock-sub { font-size: 13px; color: #B08A97; margin: 0 0 26px; transition: color 0.2s; }
+.lock-sub.err { color: #E5484D; }
+.lock-dots { display: flex; gap: 13px; margin-bottom: 32px; height: 15px; }
+.lock-dot {
+  width: 13px; height: 13px; border-radius: 50%;
+  border: 2px solid #DBA8B7; background: transparent;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.lock-dot.on { background: #E75480; border-color: #E75480; transform: scale(1.12); }
+.lock-dots.err { animation: lockShake 0.45s ease; }
+.lock-dots.err .lock-dot { border-color: #E5484D; }
+.lock-dots.ok .lock-dot { background: #E75480; border-color: #E75480; transform: scale(1.2); }
+@keyframes lockShake {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(4px); }
+  30%, 50%, 70% { transform: translateX(-7px); }
+  40%, 60% { transform: translateX(7px); }
+}
+.lock-pad {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 14px 16px; width: min(270px, 78vw);
+}
+.lock-key {
+  width: 100%; aspect-ratio: 1; padding: 0;
+  border: none; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 2px 10px rgba(180, 100, 130, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  font: 500 26px/1 'Noto Sans SC', sans-serif;
+  color: #5D4751;
+  user-select: none; -webkit-tap-highlight-color: transparent;
+  transition: transform 0.08s, background 0.15s;
+}
+.lock-key:active { transform: scale(0.9); background: rgba(255, 255, 255, 0.95); }
+.lock-key.blank { visibility: hidden; }
+.lock-key-del { font-size: 24px; }

@@ -20,6 +20,29 @@ window.LoveChat = window.LoveChat || {};
 
   const Storage = LC.Storage;
 
+  /* ---- 系统拼词：语序模板表（36 个，用户定义） ----
+   * 字母对应 config.js 的 LC.WORD_SYS_ORDER：F发语 S主语 A状语 D程度 M情态 P谓语 O客体 T语气
+   * 匹配规则：抽中的分类集合（按基础语序排序成字母串）与模板的字母集合一致才算命中 */
+  const WORD_TEMPLATES = [
+    // 两词
+    'SP', 'PO', 'PT', 'DP', 'MP', 'AP', 'FP', 'ST', 'DM', 'MO',
+    // 三词
+    'SPT', 'SDP', 'SMP', 'SAP', 'POT', 'DPT', 'DMP', 'MPO', 'FSP', 'FPT', 'AMP', 'APT',
+    // 四词
+    'SPOT', 'FSPO', 'SAMP', 'SDMP', 'FSPT', 'ADMP', 'DMPT', 'MPOT', 'SAPT',
+    // 五词及以上
+    'FSAPO', 'SADMP', 'SAMPO', 'FSPOT', 'SADMPOT',
+  ];
+  // 索引：分类集合（按基础语序排好序的字母串）→ 模板语序
+  const WORD_TPL_MAP = (() => {
+    const idx = {};
+    LC.WORD_SYS_ORDER.forEach(([k], i) => { idx[k] = i; });
+    const sortKey = (s) => s.split('').sort((a, b) => idx[a] - idx[b]).join('');
+    const m = new Map();
+    for (const t of WORD_TEMPLATES) m.set(sortKey(t), t);
+    return m;
+  })();
+
   const ChatEngine = {
     history: [],
     _hooks: {},
@@ -48,6 +71,10 @@ window.LoveChat = window.LoveChat || {};
         }
       }
       return this;
+    },
+    /** 主字卡抽取模块池：限制模式关闭（粉心）时并入"限制字卡"；开启（灰心）时不参与 */
+    mainPoolMods() {
+      return LC.config.restrictedMode ? ['main'] : ['main', 'restricted'];
     },
     async _runHook(name, ...args) {
       const fns = this._hooks[name]; if (!fns) return undefined;
@@ -202,9 +229,8 @@ window.LoveChat = window.LoveChat || {};
       const combined = userInputs.map(u => u.text).join('\n');
       await this._runHook('beforeSend', combined);
 
-      // 1. 主字卡库空检测
-      const mainCards = LC.CardLibrary.getAll('main');
-      if (!mainCards.length) {
+      // 1. 主字卡库空检测（限制模式关闭时，限制字卡并入主字卡池）
+      if (!this.mainPoolMods().some(m => LC.CardLibrary.getAll(m).length)) {
         this._busy = false;
         cbs.onEmpty && cbs.onEmpty();
         return;
@@ -253,12 +279,118 @@ window.LoveChat = window.LoveChat || {};
       }
     },
 
+    /** 按权重随机抽一张（每次独立计算，不受之前抽过什么影响，权重不衰减） */
+    _pickWeighted(cards) {
+      const total = cards.reduce((s, c) => s + (c.weight || 1), 0);
+      let r = Math.random() * total;
+      for (const c of cards) { r -= (c.weight || 1); if (r <= 0) return c; }
+      return cards[cards.length - 1];
+    },
+
+    /** 构建一条系统拼词消息（规则由用户确认）：
+     *  1. 只从 8 个固定分类中"有卡且未被禁用"的分类里抽，随机 1~N 个分类（每种数量机会均等）
+     *  2. 每个抽中的分类里各抽 1 张卡（一条消息内每个分类最多一张，跨消息可重复）
+     *  3. 拿"分类组合"先套 36 个语序模板，套不中按基础语序 F→S→A→D→M→P→O→T 排
+     *     （语序永远生效；原"语序模板辅助"开关已按用户要求移除）
+     *  4. 排列顺序就是最终顺序，内容直接首尾相连不加标点
+     *  5. 数量不受"拼词数量"设置影响（独立随机 1~8）；emoji 不与拼词混合（isWord 标记）
+     */
+    _buildSystemWordUnit(sysLib) {
+      // 按分类字母分组（只认 8 个固定分类，其他分类的卡不参与）
+      const keyOf = {};
+      for (const [k, n] of LC.WORD_SYS_ORDER) keyOf[n] = k;
+      const byKey = {};
+      for (const c of sysLib) {
+        const k = keyOf[c.category];
+        if (k) (byKey[k] = byKey[k] || []).push(c);
+      }
+      // 已禁用的分类（长按分类标签切换）不参与抽取
+      const disabledCats = new Set(Array.isArray(LC.config.wordDisabledCats) ? LC.config.wordDisabledCats : []);
+      const avail = LC.WORD_SYS_ORDER
+        .filter(([k, n]) => byKey[k] && byKey[k].length && !disabledCats.has(n))
+        .map(([k]) => k);
+      if (!avail.length) return null;
+      // 洗牌决定抽取顺序，随机抽 1~N 个分类（N = 有卡的分类数，数量均等）
+      const shuffled = [...avail];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      const count = 1 + Math.floor(Math.random() * shuffled.length);
+      const chosen = shuffled.slice(0, count); // 抽取顺序
+      // 每个抽中的分类各抽一张（带权重）
+      const drawn = {};
+      for (const k of chosen) drawn[k] = this._pickWeighted(byKey[k]);
+      // 决定最终语序：先套 36 个语序模板，套不中按基础语序 F→S→A→D→M→P→O→T 排（永远生效）
+      const idx = {};
+      LC.WORD_SYS_ORDER.forEach(([k], i) => { idx[k] = i; });
+      const setKey = [...chosen].sort((a, b) => idx[a] - idx[b]).join('');
+      const tpl = WORD_TPL_MAP.get(setKey);
+      const order = tpl ? tpl.split('') : [...chosen].sort((a, b) => idx[a] - idx[b]);
+      const content = order.map((k) => drawn[k].content).join('');
+      return { kind: 'text', content, isWord: true, emojiMerged: false };
+    },
+
+    /** 构建一条自定义拼词消息
+     *  规则（用户确认）：
+     *  - 抽取数量 = 设置"拼词数量"区间内随机（上限不超过库里已有的张数）
+     *  - 同一条消息内同一张卡不会重复出现（"宝贝宝贝"不可以）
+     *  - 排列顺序 = 抽取顺序；内容直接首尾相连，不加空格/符号
+     *  - 每条消息都是全新计算：不受之前抽过什么影响，权重不衰减
+     *  - 同一回合的不同拼词消息之间可以出现同一张卡
+     *  - isWord 标记：emoji 不会融合进拼词消息（只有主字卡可融合）
+     */
+    _buildCustomWordUnit(wordLib) {
+      const min = Math.max(1, LC.config.wordCountMin || 2);
+      const max = Math.max(min, LC.config.wordCountMax || 4);
+      let cnt = min + Math.floor(Math.random() * (max - min + 1));
+      cnt = Math.min(cnt, wordLib.length); // 库不够时只抽已有的
+      const usedIds = new Set(); // 本条消息内已抽过的卡（不放回）
+      let s = '';
+      for (let j = 0; j < cnt; j++) {
+        let card = null;
+        // 重抽直到抽到本条消息内没出现过的卡（最多尝试 20 次防死循环）
+        for (let tries = 0; tries < 20; tries++) {
+          const c = LC.CardLibrary.selectRandom('customWord');
+          if (c && !usedIds.has(c.id)) { card = c; break; }
+        }
+        if (!card) break;
+        usedIds.add(card.id);
+        s += card.content;
+      }
+      if (!s) return null;
+      return { kind: 'text', content: s, isWord: true, emojiMerged: false };
+    },
+
     /** 构建回合回复单元序列 */
     _buildReplyUnits(n) {
       const units = [];
-      // 主字卡 n 条
+      // ===== 拼词槽位整合（用户确认的规则） =====
+      // 外层：每个回复槽位掷硬币——主字卡 vs 拼词（五五开），回合内不强制配比，
+      //       可能整回合全主字卡或全拼词，都是正常概率
+      // 内层：掷到拼词后再掷一次硬币——自定义 vs 系统（五五开）。
+      //       两类拼词各视为"一张卡"（发出的永远是组合结果，内部字卡不算完整字卡），
+      //       不按内部字卡数量分比例
+      const customLib = (LC.config.wordEnabled && LC.config.wordDisableCustom !== true)
+        ? LC.CardLibrary.getAll('customWord') : [];
+      const sysLib = (LC.config.wordEnabled && LC.config.wordDisableSystem !== true)
+        ? LC.CardLibrary.getAll('systemWord').filter((c) => LC.WORD_SYS_CATS.includes(c.category)) : [];
+      const wordAvail = customLib.length > 0 || sysLib.length > 0;
       for (let i = 0; i < n; i++) {
-        const card = LC.CardLibrary.selectRandom('main');
+        if (wordAvail && Math.random() < 0.5) {
+          let wordUnit = null;
+          if (customLib.length && sysLib.length) {
+            wordUnit = (Math.random() < 0.5)
+              ? this._buildCustomWordUnit(customLib)
+              : this._buildSystemWordUnit(sysLib);
+          } else if (customLib.length) {
+            wordUnit = this._buildCustomWordUnit(customLib);
+          } else {
+            wordUnit = this._buildSystemWordUnit(sysLib);
+          }
+          if (wordUnit) { units.push(wordUnit); continue; }
+        }
+        const card = LC.CardLibrary.selectRandom(this.mainPoolMods());
         if (card) units.push({ kind: 'text', card, content: card.content, emojiMerged: false });
       }
       // Emoji 触发
@@ -266,9 +398,10 @@ window.LoveChat = window.LoveChat || {};
       if (emojiLib.length && Math.random() < (LC.config.emojiChance || 0)) {
         const emojiCard = LC.CardLibrary.selectRandom('emoji');
         if (emojiCard) {
-          // 50% 合并到某条文字，50% 独立成条
-          const textUnits = units.filter(u => u.kind === 'text' && !u.emojiMerged);
-          if (textUnits.length && Math.random() < 0.5) {
+          // 50% 合并到某条文字，50% 独立成条（关闭"允许emoji与字卡融合发送"后只独立成条）
+          // 拼词消息（isWord）不与 emoji 混合，只有主字卡可以融合
+          const textUnits = units.filter(u => u.kind === 'text' && !u.emojiMerged && !u.isWord);
+          if (LC.config.emojiFuse !== false && textUnits.length && Math.random() < 0.5) {
             const target = textUnits[Math.floor(Math.random() * textUnits.length)];
             if (Math.random() < 0.5) target.content = emojiCard.content + target.content;
             else target.content = target.content + emojiCard.content;
@@ -306,7 +439,32 @@ window.LoveChat = window.LoveChat || {};
       if (u.kind === 'pat') {
         return this._addMsg('partner', 'pat', u.content, { cardId: u.card?.id });
       }
-      return this._addMsg('partner', u.kind, u.content, { cardId: u.card?.id });
+      const extra = { cardId: u.card?.id };
+      // 辅助标签（仅文字消息；存入消息记录，刷新后仍在）：
+      //   word=拼词来源（只要来自拼词就标，不受辅助开关影响）
+      //   logic=关联词辅助、mood=情绪辅助：各自独立判定 = 开关 + 应用范围匹配 + 每条消息 50% 概率触发
+      if (u.kind === 'text') {
+        const assist = {};
+        if (u.isWord) assist.word = true;
+        if (LC.config.moodAssistEnabled && this._assistScopeMatch('moodAssistScope', u.isWord)
+          && LC.CardLibrary.getAll('moodAssist').length && Math.random() < 0.5) {
+          const c = LC.CardLibrary.selectRandom('moodAssist');
+          if (c) assist.mood = c.content;
+        }
+        if (LC.config.wordLogicLink && this._assistScopeMatch('wordLogicLinkScope', u.isWord)
+          && LC.CardLibrary.getAll('logicAssist').length && Math.random() < 0.5) {
+          const c = LC.CardLibrary.selectRandom('logicAssist');
+          if (c) assist.logic = c.content;
+        }
+        if (assist.word || assist.mood || assist.logic) extra.assist = assist;
+      }
+      return this._addMsg('partner', u.kind, u.content, extra);
+    },
+    /** 辅助应用范围匹配：'all' 全部字卡 | 'word' 仅拼词 | 'main' 仅主字卡 */
+    _assistScopeMatch(scopeKey, isWord) {
+      const s = LC.config[scopeKey] || 'all';
+      if (s === 'all') return true;
+      return isWord ? s === 'word' : s === 'main';
     },
 
     _sleep(ms) { return new Promise(r => setTimeout(r, ms)); },
@@ -336,8 +494,8 @@ window.LoveChat = window.LoveChat || {};
       const tick = () => {
         const card = LC.CardLibrary.pickNewStatus();
         if (card && this._onStatusChange) this._onStatusChange(card.content);
-        const min = LC.config.statusMinMs || 180000;
-        const max = LC.config.statusMaxMs || 600000;
+        const min = LC.config.statusMinMs || 21600000;
+        const max = LC.config.statusMaxMs || 43200000;
         const next = min + Math.random() * (max - min);
         this._statusTimer = setTimeout(tick, next);
       };
@@ -346,8 +504,8 @@ window.LoveChat = window.LoveChat || {};
         tick();
       } else if (LC.CardLibrary.getAll('status').length) {
         // 已有状态，延迟后切换
-        const min = LC.config.statusMinMs || 180000;
-        const max = LC.config.statusMaxMs || 600000;
+        const min = LC.config.statusMinMs || 21600000;
+        const max = LC.config.statusMaxMs || 43200000;
         this._statusTimer = setTimeout(tick, min + Math.random() * (max - min));
       }
     },
@@ -396,9 +554,8 @@ window.LoveChat = window.LoveChat || {};
         this._proactiveCooldown();
         return;
       }
-      // 主字卡空检测：同正常回合
-      const mainCards = LC.CardLibrary.getAll('main');
-      if (!mainCards.length) {
+      // 主字卡空检测：同正常回合（限制模式关闭时，限制字卡并入主字卡池）
+      if (!this.mainPoolMods().some(m => LC.CardLibrary.getAll(m).length)) {
         // 没字卡就当作失败冷却（让用户能察觉到"主动发"按钮已开但没字卡）
         this._proactiveFailCooldown();
         return;

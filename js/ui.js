@@ -52,6 +52,7 @@ window.LoveChat = window.LoveChat || {};
         cardModal: $('#cardModal'), cardModalTitle: $('#cardModalTitle'),
         cardTextInput: $('#cardTextInput'), cardCategoryFields: $('#cardCategoryFields'),
         cardCategoryInput: $('#cardCategoryInput'), cardCategorySelect: $('#cardCategorySelect'),
+        cardSubCatFields: $('#cardSubCatFields'), cardSubCatInput: $('#cardSubCatInput'), cardSubCatSelect: $('#cardSubCatSelect'),
         cardWeightInput: $('#cardWeightInput'), cardWeightField: $('#cardWeightField'),
         cardBatchHint: $('#cardBatchHint'),
         inputExpand: $('#inputExpand'), inputExpandText: $('#inputExpandText'),
@@ -59,6 +60,8 @@ window.LoveChat = window.LoveChat || {};
         patModal: $('#patModal'), patInput: $('#patInput'), patQuick: $('#patQuick'),
         expandMenuSheet: $('#expandMenuSheet'),
         categoryModal: $('#categoryModal'), catList: $('#catList'), catAddInput: $('#catAddInput'),
+        sysCatSelect: $('#sysCatSelect'),
+        groupModal: $('#groupModal'), groupSysCatSelect: $('#groupSysCatSelect'), groupCatList: $('#groupCatList'),
         exportModal: $('#exportCatModal'), exportCatList: $('#exportCatList'), exportModList: $('#exportModList'),
         importModal: $('#importModal'),
         // 头像/背景/抉择
@@ -86,8 +89,11 @@ window.LoveChat = window.LoveChat || {};
         lettersBadge: $('#lettersBadge'),
         // 隐藏/显示界面按钮
         uiHideBtn: $('#uiHideBtn'), uiShowBtn: $('#uiShowBtn'),
+        scrollBottomBtn: $('#scrollBottomBtn'),
+        restrictBtn: $('#restrictBtn'),
       };
       this._bindEvents();
+      this._applyRestrictMode();
       this._renderSubTabs();
     },
 
@@ -121,9 +127,25 @@ window.LoveChat = window.LoveChat || {};
       });
       // 面板开关
       $('#openCardsBtn').addEventListener('click', () => this.openCardsPanel());
+      // 限制模式开关：开启（灰心）= 限制字卡不参与自动抽取；关闭（粉心）= 并入主字卡抽取
+      e.restrictBtn.addEventListener('click', () => {
+        LC.config.restrictedMode = !LC.config.restrictedMode;
+        LC.Storage.set('config', LC.config);
+        this._applyRestrictMode();
+      });
       $('#closeCardsBtn').addEventListener('click', () => this.closeCardsPanel());
       $('#openSettingsBtn').addEventListener('click', () => this.openSettingsPanel());
       $('#closeSettingsBtn').addEventListener('click', () => this.closeSettingsPanel());
+      // 设置-对话体验：分组标题右侧小三角，点击折叠/展开该组设置（只留标题行）
+      $$('.group-fold-btn').forEach(btn => btn.addEventListener('click', () => {
+        const group = btn.closest('.settings-group');
+        if (!group) return;
+        const body = group.querySelector('.settings-group-body');
+        if (!body) return;
+        const folded = body.classList.toggle('folded');
+        btn.classList.toggle('folded', folded);
+        btn.setAttribute('aria-label', folded ? '展开' : '折叠');
+      }));
       e.overlay.addEventListener('click', () => this.closeAllPanels());
       // 顶部 Tab
       $$('.toptab').forEach(b => b.addEventListener('click', () => this._switchGroup(b.dataset.group)));
@@ -132,7 +154,11 @@ window.LoveChat = window.LoveChat || {};
       // 字卡弹窗
       $('#cancelCardBtn').addEventListener('click', () => this._closeCardModal());
       $('#saveCardBtn').addEventListener('click', () => this._onSaveCard());
-      e.cardCategorySelect.addEventListener('change', () => { if (e.cardCategorySelect.value) e.cardCategoryInput.value = e.cardCategorySelect.value; });
+      e.cardCategorySelect.addEventListener('change', () => { if (e.cardCategorySelect.value) e.cardCategoryInput.value = e.cardCategorySelect.value; this._refreshSubCatOptions(); });
+      e.cardCategoryInput.addEventListener('input', () => this._refreshSubCatOptions());
+      e.cardSubCatSelect.addEventListener('change', () => { if (e.cardSubCatSelect.value) e.cardSubCatInput.value = e.cardSubCatSelect.value; });
+      // 分组弹窗（多选移动字卡）
+      $('#groupCancelBtn').addEventListener('click', () => this._hideModal('groupModal'));
       // 分类管理
       $('#catAddBtn').addEventListener('click', () => this._onAddCategory());
       e.catAddInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') this._onAddCategory(); });
@@ -150,10 +176,19 @@ window.LoveChat = window.LoveChat || {};
         const btn = ev.target.closest('.popup-item'); if (!btn) return;
         const act = btn.dataset.act;
         this._closeExportChoice();
-        if (act === 'cat') this._openExportCatModal();
+        if (act === 'cat') this._openExportCatModal('main');
+        else if (act === 'wordcat') this._openExportWordTypeMenu();
         else if (act === 'full') this._openExportFullModal();
       });
+      // 拼词库导出类型选择（自定义拼词 / 系统拼词）
+      $('#exportWordTypeMenu').addEventListener('click', (ev) => {
+        const btn = ev.target.closest('.popup-item'); if (!btn) return;
+        const wordMod = btn.dataset.wordmod;
+        this._closeExportWordTypeMenu();
+        if (wordMod) this._openExportCatModal(wordMod);
+      });
       $('#importGroupBtn').addEventListener('click', () => this._toggleImportModeMenu('group'));
+      $('#importWordBtn').addEventListener('click', () => this._toggleImportModeMenu('word'));
       $('#importFullBtn').addEventListener('click', () => this._toggleImportModeMenu('full'));
       // 导入方式选择（覆盖 / 添加）：按分组导入和全量导入共用此菜单
       $('#importModeMenu').addEventListener('click', (ev) => {
@@ -254,8 +289,8 @@ window.LoveChat = window.LoveChat || {};
       // 主动发消息
       $('#setProactiveEnabled').addEventListener('change', (ev) => { LC.config.proactiveEnabled = ev.target.checked; LC.Storage.set('config', LC.config); LC.ChatEngine.refreshProactive(); });
       const onProactiveRange = () => {
-        let mn = Math.max(1, parseFloat($('#setProactiveIntervalMin').value) || 5);
-        let mx = Math.max(mn, parseFloat($('#setProactiveIntervalMax').value) || (mn + 10));
+        let mn = Math.max(1, parseFloat($('#setProactiveIntervalMin').value) || 3);
+        let mx = Math.max(mn, parseFloat($('#setProactiveIntervalMax').value) || (mn + 7));
         LC.config.proactiveIntervalMin = mn; LC.config.proactiveIntervalMax = mx;
         LC.Storage.set('config', LC.config);
         $('#proactiveIntervalHint').textContent = `${mn} ~ ${mx} 分钟`;
@@ -293,6 +328,38 @@ window.LoveChat = window.LoveChat || {};
       $('#setLetterProactiveMin').addEventListener('input', (ev) => this._onLetterProactiveChange());
       $('#setLetterProactiveMax').addEventListener('input', (ev) => this._onLetterProactiveChange());
       $('#setLetterProactiveContinuous').addEventListener('change', (ev) => { LC.config.letterProactiveContinuous = ev.target.checked; LC.Storage.set('config', LC.config); });
+      // 拼词功能（具体逻辑后续开发，先保存开关状态）
+      $('#setWordEnabled').addEventListener('change', (ev) => { LC.config.wordEnabled = ev.target.checked; LC.Storage.set('config', LC.config); });
+      // 拼词数量区间（条）
+      const onWordCount = () => {
+        let mn = Math.min(50, Math.max(1, parseInt($('#setWordCountMin').value) || 2));
+        let mx = Math.min(50, Math.max(mn, parseInt($('#setWordCountMax').value) || (mn + 2)));
+        LC.config.wordCountMin = mn; LC.config.wordCountMax = mx;
+        LC.Storage.set('config', LC.config);
+        $('#wordCountHint').textContent = `${mn} ~ ${mx} 条`;
+      };
+      $('#setWordCountMin').addEventListener('input', onWordCount);
+      $('#setWordCountMax').addEventListener('input', onWordCount);
+      $('#setWordDisableSystem').addEventListener('change', (ev) => { LC.config.wordDisableSystem = ev.target.checked; LC.Storage.set('config', LC.config); });
+      $('#setWordDisableCustom').addEventListener('change', (ev) => { LC.config.wordDisableCustom = ev.target.checked; LC.Storage.set('config', LC.config); });
+      // 情绪辅助 / 逻辑关联词辅助：开关 + 应用范围（开启时显示范围选项，三个选一）
+      const bindAssistScope = (cfgField, toggleId, rowId) => {
+        const t = $(toggleId), row = $(rowId);
+        t.addEventListener('change', () => {
+          LC.config[cfgField] = t.checked;
+          LC.Storage.set('config', LC.config);
+          row.hidden = !t.checked; // 开关开启时才显示范围选项
+        });
+        row.querySelectorAll('.assist-opt').forEach(b => b.addEventListener('click', () => {
+          LC.config[cfgField + 'Scope'] = b.dataset.v;
+          LC.Storage.set('config', LC.config);
+          row.querySelectorAll('.assist-opt').forEach(x => x.classList.toggle('active', x === b));
+        }));
+      };
+      bindAssistScope('moodAssistEnabled', '#setMoodAssistEnabled', '#moodAssistScopeRow');
+      bindAssistScope('wordLogicLink', '#setWordLogicLink', '#wordLogicLinkScopeRow');
+      // Emoji 融合发送开关（关闭后 emoji 只独立成条，不融合进文字）
+      $('#setEmojiFuse').addEventListener('change', (ev) => { LC.config.emojiFuse = ev.target.checked; LC.Storage.set('config', LC.config); });
       // 聊天记录导出/导入
       $('#exportChatBtn').addEventListener('click', () => this._exportChatHistory());
       $('#exportChatJsonBtn').addEventListener('click', () => this._exportChatHistoryJson());
@@ -349,11 +416,19 @@ window.LoveChat = window.LoveChat || {};
         this._closeExportChoice();
         return;
       }
-      // 导入方式浮窗（覆盖/添加）：点任何空白处关闭（按分组导入 / 全量导入按钮都触发该菜单，需排除）
+      // 拼词库导出类型浮窗（自定义/系统）：点外部关闭
+      const wordTypeMenu = $('#exportWordTypeMenu');
+      if (wordTypeMenu && !wordTypeMenu.hidden
+          && !wordTypeMenu.contains(ev.target) && !$('#exportBtn').contains(ev.target)) {
+        this._closeExportWordTypeMenu();
+        return;
+      }
+      // 导入方式浮窗（覆盖/添加）：点任何空白处关闭（三种导入按钮都触发该菜单，需排除）
       const importModeMenu = $('#importModeMenu');
       if (importModeMenu && !importModeMenu.hidden
           && !importModeMenu.contains(ev.target)
           && !$('#importGroupBtn').contains(ev.target)
+          && !$('#importWordBtn').contains(ev.target)
           && !$('#importFullBtn').contains(ev.target)) {
         this._closeImportModeMenu();
         return;
@@ -585,13 +660,27 @@ window.LoveChat = window.LoveChat || {};
       const timeStr = this._fmtTime(msg.time);
       // 引用块（微信式：气泡内顶部展示被引用内容，带分隔线）
       const quoteHTML = msg.quote ? this._quoteBlockHTML(msg.quote) : '';
-      row.innerHTML = `<div class="avatar${avClass}">${avatarHTML}</div><div class="bubble-group"><div class="${bubbleClass}">${quoteHTML}${content}</div><div class="msg-time">${timeStr}</div></div>`;
+      // 辅助标签行（正文下方：虚线分隔 + 小气泡，见 _assistTagsHTML）
+      const assistHTML = this._assistTagsHTML(msg.assist);
+      row.innerHTML = `<div class="avatar${avClass}">${avatarHTML}</div><div class="bubble-group"><div class="${bubbleClass}">${quoteHTML}${content}${assistHTML}</div><div class="msg-time">${timeStr}</div></div>`;
       if (!animate) row.style.animation = 'none';
       (container || this.el.messagesScroll).appendChild(row);
       // 长按消息弹出操作菜单（引用 / 删除）—— 仅普通文字与表情包消息支持
       this._attachLongPress(row, msg);
       if (!container) this._updateMessagesLayout();
       if (animate && !container) this._maybeAutoScroll(msg.role);
+    },
+    /** 辅助标签行 HTML（气泡内正文下方：虚线分隔 + 小气泡标签）
+     *  顺序固定：自由造句（拼词来源）→ 关联逻辑词 → 情绪；缺哪个就跳过哪个
+     *  msg.assist 由 chatEngine 在消息生成时写入（word/logic/mood），随消息记录持久化 */
+    _assistTagsHTML(assist) {
+      if (!assist) return '';
+      const tags = [];
+      if (assist.word) tags.push('自由造句');
+      if (assist.logic) tags.push(esc(assist.logic));
+      if (assist.mood) tags.push(esc(assist.mood));
+      if (!tags.length) return '';
+      return `<div class="assist-tags"><div class="assist-divider"></div>${tags.map(t => `<span class="assist-tag">${t}</span>`).join('')}</div>`;
     },
     /** 渲染头像 HTML（支持 emoji 字符串 / {url,crop} 对象 / 空=默认剪影） */
     _avatarHTML(avatar) {
@@ -1230,9 +1319,22 @@ window.LoveChat = window.LoveChat || {};
       this._maybeHideOverlay();
       this._closeAllModals();
     },
+    /** 限制模式图标状态同步：开启（灰心）= 限制字卡不参与自动抽取；关闭（粉心）= 并入主字卡 */
+    _applyRestrictMode() {
+      const btn = this.el.restrictBtn;
+      if (!btn) return;
+      const on = !!LC.config.restrictedMode;
+      btn.classList.toggle('on', on);
+      btn.title = on ? '限制模式已开启（限制字卡不参与回复）' : '限制模式已关闭';
+      btn.setAttribute('aria-label', btn.title);
+    },
+
     _switchGroup(group) {
-      // 切换分组时关闭多选模式
+      // 切换分组时自动关闭已打开的弹窗、关闭多选模式
+      this._closePopupsOnNavigate();
       if (this._multiSelMode) { this._multiSelMode = false; this._multiSel.clear(); }
+      // 切换分组时重置分类筛选（不同分组/模块的分类互不通用）
+      this._catFilter = '全部字卡';
       this._activeGroup = group;
       $$('.toptab').forEach(b => b.classList.toggle('active', b.dataset.group === group));
       // 默认选该组第一个模块
@@ -1244,19 +1346,25 @@ window.LoveChat = window.LoveChat || {};
       this.el.panelSubTabs.innerHTML = mods.map(m =>
         `<button class="subtab${m.key === this._activeModule ? ' active' : ''}" data-mod="${m.key}">${esc(m.name)}</button>`).join('');
       this.el.panelSubTabs.querySelectorAll('.subtab').forEach(b => b.addEventListener('click', () => {
-        // 切换子模块时关闭多选模式
+        // 切换子模块时自动关闭已打开的弹窗、关闭多选模式
+        this._closePopupsOnNavigate();
         if (this._multiSelMode) { this._multiSelMode = false; this._multiSel.clear(); }
+        // 切换模块时重置分类筛选（不同模块的分类互不通用）
+        if (b.dataset.mod === 'systemWord') this._resetSysWordFilter();
+        else this._catFilter = '全部字卡';
         this._activeModule = b.dataset.mod; this._renderSubTabs(); this._renderPanelContent();
       }));
-      // 标题
-      this.el.panelTitle.textContent = this._activeGroup === 'reply' ? '回复库' : '氛围感';
+      // 标题（分组 → 面板大标题）
+      const groupTitles = { reply: '回复设定', vibe: '氛围感', word: '拼词库' };
+      this.el.panelTitle.textContent = groupTitles[this._activeGroup] || '回复设定';
     },
     _renderPanelContent() {
       const mod = LC.MODULES[this._activeModule];
       this.el.addBtnLabel.textContent = '添加' + mod.name;
-      // 切换模块前先清空 mgmt-bar（仅主字卡面板会注入工具栏）
-      if (mod.key !== 'main' && this.el.panelMgmtBar) this.el.panelMgmtBar.innerHTML = '';
-      if (mod.key === 'main') this._renderMainPanel();
+      // 切换模块前先清空 mgmt-bar（仅支持分类的模块面板会注入工具栏）
+      if (!mod.hasCategory && this.el.panelMgmtBar) this.el.panelMgmtBar.innerHTML = '';
+      // 支持分类的模块（主字卡 / 自定义拼词 / 系统拼词）共用主面板逻辑
+      if (mod.hasCategory) this._renderMainPanel();
       else if (mod.type === 'emoji') this._renderEmojiPanel();
       else if (mod.type === 'image') this._renderStickerPanel();
       else this._renderTextListPanel(); // pat / status
@@ -1301,6 +1409,7 @@ window.LoveChat = window.LoveChat || {};
     /* --- 主字卡面板 --- */
     _renderMainPanel() {
       // 搜索+管理工具栏渲染到 panel-mgmtbar（紧贴 subtabs，避免缝隙透字）
+      // 系统拼词的分类管理管的是"大分类下的小分类"（弹窗里先选大分类）
       this.el.panelMgmtBar.innerHTML = `
         <div class="mgmt-bar">
           <input type="text" id="cardSearch" class="filter-input" placeholder="搜索字卡内容……">
@@ -1310,13 +1419,11 @@ window.LoveChat = window.LoveChat || {};
           <button class="mgmt-btn" id="catMgmtBtn" title="分类管理">
             <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M3 5h18v2H3V5zm0 6h18v2H3v-2zm0 6h18v2H3v-2z"/></svg>
           </button>
-          <button class="mgmt-btn" id="dedupBtn" title="查重去重">
-            <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M6 7h12v2H6V7zm0 4h12v2H6v-2zm0 4h8v2H6v-2zM3 3h18v18H3V3z" opacity="0"/><path fill="currentColor" d="M4 6h16v2H4V6zm0 5h12v2H4v-2z M19 13l-1.41 1.41L19.17 16 15 11.83 16.41 10.42z"/></svg>
-          </button>
         </div>`;
       const html = `
         <div class="main-sticky-area">
           <div class="cat-chips" id="catChips"></div>
+          <div class="cat-chips sub-cat-chips" id="subCatChips" hidden></div>
           <div class="multi-bar" id="multiBar" hidden>
             <button class="multi-action" id="multiSelectAllBtn">全选</button>
             <button class="multi-action" id="multiGroupBtn">分组</button>
@@ -1328,7 +1435,6 @@ window.LoveChat = window.LoveChat || {};
       this.el.panelBody.innerHTML = html;
       $('#cardSearch').addEventListener('input', () => this._renderMainList());
       $('#catMgmtBtn').addEventListener('click', () => this._openCategoryModal());
-      $('#dedupBtn').addEventListener('click', () => this._onDedup());
       $('#multiBtn').addEventListener('click', () => this._toggleMultiMode());
       $('#multiSelectAllBtn').addEventListener('click', () => this._multiSelectAllToggle());
       $('#multiGroupBtn').addEventListener('click', () => this._multiGroupSelected());
@@ -1338,24 +1444,150 @@ window.LoveChat = window.LoveChat || {};
       this._applyMultiMode();
     },
     _renderCatChips() {
-      const cats = ['全部字卡', '未分类字卡', ...LC.CardLibrary.getAllCategories().filter(c => c !== '未分类')];
+      const mod = this._activeModule; // 当前带分类的模块（main / customWord / systemWord）
+      const isSys = (mod === 'systemWord');
+      // 系统拼词：没有"全部字卡"，固定为 未分类字卡 + 八大分类（按固定顺序）
+      const cats = isSys
+        ? ['未分类字卡', ...LC.WORD_SYS_CATS]
+        : ['全部字卡', '未分类字卡', ...LC.CardLibrary.getAllCategories(mod).filter(c => c !== '未分类')];
       const chips = $('#catChips');
       if (!chips) return;
-      chips.innerHTML = cats.map(c => `<button class="cat-chip${c === this._catFilter ? ' active' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('');
-      chips.querySelectorAll('.cat-chip').forEach(b => b.addEventListener('click', () => {
-        this._catFilter = b.dataset.cat;
-        // 切换分类清空之前分类的框选（避免跨分类混选）
+      const disabled = this._getDisabledWordCats();
+      chips.innerHTML = cats.map(c => {
+        const dis = isSys && disabled.has(c);
+        return `<button class="cat-chip${c === this._catFilter ? ' active' : ''}${dis ? ' chip-disabled' : ''}" data-cat="${esc(c)}">${esc(c)}${dis ? '<span class="chip-disable-badge">禁用</span>' : ''}</button>`;
+      }).join('');
+      chips.querySelectorAll('.cat-chip').forEach(b => {
+        let lp = false; // 长按已触发 → 屏蔽紧随其后的 click
+        b.addEventListener('click', () => {
+          if (lp) { lp = false; return; }
+          // 切换分类时自动关闭已打开的弹窗（多选模式保留，选择清空）
+          this._closePopupsOnNavigate();
+          this._catFilter = b.dataset.cat;
+          // 系统拼词：切到大分类时默认选中它的第一个自建小分类（无自建则固定"未分类字卡"小分类）
+          if (isSys && LC.WORD_SYS_CATS.includes(this._catFilter)) {
+            const subs = LC.CardLibrary.getSubCats(this._catFilter);
+            this._subCatFilter = subs.length ? subs[0] : '';
+          }
+          // 切换分类清空之前分类的框选（避免跨分类混选）
+          if (this._multiSelMode) this._multiSel.clear();
+          this._renderCatChips();
+          this._renderMainList();
+        });
+        // 系统拼词：长按八大固定分类标签 → 禁用/恢复（禁用 = 不参与拼词抽取）
+        if (isSys && LC.WORD_SYS_CATS.includes(b.dataset.cat)) {
+          this._attachChipLongPress(b, () => {
+            lp = true;
+            setTimeout(() => { lp = false; }, 400);
+          });
+        }
+      });
+      this._renderSubCatChips();
+    },
+    /** 系统拼词：当前大分类下的小分类气泡行 = 固定"未分类字卡"气泡（收该大类下没分小类的卡）
+     *  + 用户自建小分类；八大分类下始终显示（"未分类字卡"大分类下无小分类行） */
+    _renderSubCatChips() {
+      const row = $('#subCatChips');
+      if (!row) return;
+      const isBigCat = (this._activeModule === 'systemWord') && LC.WORD_SYS_CATS.includes(this._catFilter);
+      row.hidden = !isBigCat;
+      if (row.hidden) { row.innerHTML = ''; return; }
+      const subs = LC.CardLibrary.getSubCats(this._catFilter); // 自建小分类（建立序）
+      // 当前选中的自建小分类不存在了（如刚被删除）→ 回到第一个自建小分类；没有自建则固定气泡
+      if (this._subCatFilter !== '' && !subs.includes(this._subCatFilter)) this._subCatFilter = subs.length ? subs[0] : '';
+      // _subCatFilter === '' 表示固定"未分类字卡"小分类
+      row.innerHTML =
+        `<button class="cat-chip sub-chip${this._subCatFilter === '' ? ' active' : ''}" data-sub="__uncat__">未分类字卡</button>` +
+        subs.map(s =>
+          `<button class="cat-chip sub-chip${s === this._subCatFilter ? ' active' : ''}" data-sub="${esc(s)}">${esc(s)}</button>`).join('');
+      row.querySelectorAll('.sub-chip').forEach(b => b.addEventListener('click', () => {
+        // 切换小分类时自动关闭已打开的弹窗（多选模式保留，选择清空）
+        this._closePopupsOnNavigate();
+        this._subCatFilter = (b.dataset.sub === '__uncat__') ? '' : b.dataset.sub;
         if (this._multiSelMode) this._multiSel.clear();
-        this._renderCatChips();
+        this._renderSubCatChips();
         this._renderMainList();
       }));
     },
+    /** 系统拼词默认筛选：大分类级"未分类字卡"（只收没选大分类的卡）有卡优先显示，
+     *  否则第一个大分类的第一个自建小分类（无自建则其"未分类字卡"小分类） */
+    _resetSysWordFilter() {
+      if (LC.CardLibrary.search('systemWord', '', '未分类字卡').length) {
+        this._catFilter = '未分类字卡';
+        this._subCatFilter = '';
+        return;
+      }
+      const first = LC.WORD_SYS_CATS[0];
+      this._catFilter = first;
+      const subs = LC.CardLibrary.getSubCats(first);
+      this._subCatFilter = subs.length ? subs[0] : '';
+    },
+    /** 系统拼词：按小分类过滤（_subCatFilter === '' = 固定"未分类字卡"小分类 = 该大类下没分小类的卡） */
+    _filterBySubCat(cards) {
+      if (this._activeModule !== 'systemWord') return cards;
+      if (!LC.WORD_SYS_CATS.includes(this._catFilter)) return cards;
+      const subs = LC.CardLibrary.getSubCats(this._catFilter);
+      // 选中的自建小分类不存在了 → 回到第一个自建；没有自建则固定气泡
+      if (this._subCatFilter !== '' && !subs.includes(this._subCatFilter)) this._subCatFilter = subs.length ? subs[0] : '';
+      return cards.filter(c => (this._subCatFilter === '') ? !c.subCat : c.subCat === this._subCatFilter);
+    },
+    /** 分类标签长按（500ms，移动端 touchstart + 桌面端 mousedown），触发后由回调屏蔽 click */
+    _attachChipLongPress(chip, onFire) {
+      let timer = null;
+      const start = () => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          timer = null;
+          onFire();
+          this._toggleWordCatDisabled(chip.dataset.cat);
+        }, 500);
+      };
+      const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+      chip.addEventListener('touchstart', start, { passive: true });
+      chip.addEventListener('touchend', cancel);
+      chip.addEventListener('touchmove', cancel, { passive: true });
+      chip.addEventListener('touchcancel', cancel);
+      chip.addEventListener('mousedown', start);
+      chip.addEventListener('mouseup', cancel);
+      chip.addEventListener('mouseleave', cancel);
+      // 屏蔽移动端长按弹出的文字选择菜单
+      chip.addEventListener('contextmenu', (e) => e.preventDefault());
+    },
+    /** 切换系统拼词某个固定分类的禁用状态（长按分类标签触发，禁用 = 不参与抽取） */
+    _toggleWordCatDisabled(name) {
+      const arr = Array.isArray(LC.config.wordDisabledCats) ? [...LC.config.wordDisabledCats] : [];
+      const i = arr.indexOf(name);
+      if (i >= 0) { arr.splice(i, 1); this._toast(`已恢复「${name}」分类`); }
+      else { arr.push(name); this._toast(`已禁用「${name}」，拼词时不再抽取该分类`, 2200); }
+      LC.config.wordDisabledCats = arr;
+      LC.Storage.set('config', LC.config);
+      if (navigator.vibrate) try { navigator.vibrate(10); } catch (_) {}
+      this._renderCatChips();
+      this._renderMainList();
+    },
+    /** 当前已禁用的系统拼词分类集合 */
+    _getDisabledWordCats() {
+      return new Set(Array.isArray(LC.config.wordDisabledCats) ? LC.config.wordDisabledCats : []);
+    },
     _renderMainList() {
+      const mod = this._activeModule;
       const kw = ($('#cardSearch')?.value || '').trim();
       const cat = this._catFilter;
-      const cards = LC.CardLibrary.search('main', kw, cat);
+      const cards = this._filterBySubCat(LC.CardLibrary.search(mod, kw, cat));
       const list = $('#mainCardList');
       if (!list) return;
+      // 系统拼词：正在查看已禁用的分类 → 卡片置灰 + 顶部提示条（长按分类标签可恢复）
+      const oldHint = document.querySelector('.cat-disabled-hint');
+      if (oldHint) oldHint.remove();
+      if (mod === 'systemWord' && this._getDisabledWordCats().has(cat)) {
+        list.classList.add('cat-filter-disabled');
+        const hint = document.createElement('div');
+        hint.className = 'cat-disabled-hint';
+        hint.textContent = '该分类已禁用，拼词时不会抽取这里的字卡。长按分类标签可恢复。';
+        list.parentNode.insertBefore(hint, list);
+      } else {
+        list.classList.remove('cat-filter-disabled');
+      }
       const self = this;
       // 构造单条字卡 DOM 节点（事件在节点上直接绑定，分页"显示更多"后新节点也能工作）
       const renderItem = (c) => {
@@ -1371,7 +1603,7 @@ window.LoveChat = window.LoveChat || {};
           <div class="card-item-content">
             <div class="card-text">${esc(c.content)}</div>
             <div class="card-meta">
-              <span class="card-tag">${esc(c.category || '未分类')}</span>
+              <span class="card-tag">${esc(c.category || '未分类')}${(mod === 'systemWord' && c.subCat) ? ' · ' + esc(c.subCat) : ''}</span>
               ${c.weight > 1 ? `<span class="card-weight">权重${c.weight}</span>` : ''}
               ${c.useCount > 0 ? `<span class="card-weight">用过${c.useCount}次</span>` : ''}
             </div>
@@ -1389,13 +1621,18 @@ window.LoveChat = window.LoveChat || {};
         } else {
           const eb = div.querySelector('.edit-card');
           const db = div.querySelector('.del-card');
-          if (eb) eb.addEventListener('click', () => self._openCardModal('main', eb.dataset.id));
-          if (db) db.addEventListener('click', () => self._onDeleteCard('main', db.dataset.id));
+          if (eb) eb.addEventListener('click', () => self._openCardModal(mod, eb.dataset.id));
+          if (db) db.addEventListener('click', () => self._onDeleteCard(mod, db.dataset.id));
         }
         return div;
       };
+      // 系统拼词：该大分类还没建任何自建小分类、当前在固定"未分类字卡"小分类 → 给出建小分类的引导
+      const noSubs = (mod === 'systemWord') && LC.WORD_SYS_CATS.includes(cat)
+        && !LC.CardLibrary.getSubCats(cat).length && this._subCatFilter === '';
       this._renderCardListPaginated(list, cards, renderItem, {
-        emptyHtml: '<div class="empty-card-list">没有匹配的字卡</div>'
+        emptyHtml: noSubs
+          ? '<div class="empty-card-list">该分类还没有小分类<br>可在「分类管理」里创建小分类后，把字卡分进来</div>'
+          : '<div class="empty-card-list">没有匹配的字卡</div>'
       });
       this._updateMultiCount();
     },
@@ -1425,13 +1662,13 @@ window.LoveChat = window.LoveChat || {};
       const allBtn = $('#multiSelectAllBtn');
       if (!allBtn) return;
       const kw = ($('#cardSearch')?.value || '').trim();
-      const cards = LC.CardLibrary.search('main', kw, this._catFilter);
+      const cards = this._filterBySubCat(LC.CardLibrary.search(this._activeModule, kw, this._catFilter));
       const allSel = cards.length > 0 && cards.every(c => this._multiSel.has(c.id));
       allBtn.textContent = allSel ? '取消全选' : '全选';
     },
     _multiSelectAllToggle() {
       const kw = ($('#cardSearch')?.value || '').trim();
-      const cards = LC.CardLibrary.search('main', kw, this._catFilter);
+      const cards = this._filterBySubCat(LC.CardLibrary.search(this._activeModule, kw, this._catFilter));
       if (!cards.length) return;
       const allSel = cards.every(c => this._multiSel.has(c.id));
       if (allSel) {
@@ -1445,34 +1682,80 @@ window.LoveChat = window.LoveChat || {};
     },
     _multiGroupSelected() {
       if (!this._multiSel.size) { this._toast('请先选中字卡'); return; }
-      // 弹出可用分类列表（除当前分类外的所有分类 + "未分类"）
-      const cats = LC.CardLibrary.getAllCategories();
+      this._groupSysCat = null; // 系统拼词：弹窗里已选的大分类（两步选择）
+      this._renderGroupModal();
+      this._showModal('groupModal');
+    },
+    /** 分组弹窗内容：普通模块直接列分类点选；系统拼词先选大分类再选小分类 */
+    _renderGroupModal() {
+      const mod = this._activeModule;
+      const isSys = (mod === 'systemWord');
+      const sysRow = this.el.groupSysCatSelect;
+      sysRow.hidden = !isSys;
+      if (isSys) {
+        // 第一步：选大分类（含"未分类"，点了直接移出八大分类）
+        sysRow.innerHTML = `<button class="cat-chip" data-cat="__uncat__">未分类</button>` + LC.WORD_SYS_CATS.map(c =>
+          `<button class="cat-chip${c === this._groupSysCat ? ' active' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('');
+        sysRow.querySelectorAll('.cat-chip').forEach(b => b.addEventListener('click', () => {
+          if (b.dataset.cat === '__uncat__') { this._groupMove('未分类', ''); return; }
+          this._groupSysCat = b.dataset.cat;
+          this._renderGroupModal();
+        }));
+        if (!this._groupSysCat) {
+          this.el.groupCatList.innerHTML = '<div class="empty-card-list">请先在上方选择要移动到的大分类</div>';
+          return;
+        }
+        // 第二步：选该大分类下的小分类（"未分类字卡" = 只改大分类，不设小分类）
+        const cat = this._groupSysCat;
+        const subs = LC.CardLibrary.getSubCats(cat);
+        this.el.groupCatList.innerHTML = subs.map(s => `
+          <div class="cat-item pick" data-sub="${esc(s)}">
+            <span class="ci-name">${esc(s)}</span>
+            <span class="ci-count">${LC.CardLibrary.countBySubCat(cat, s)}</span>
+          </div>`).join('') + `
+          <div class="cat-item pick" data-sub="">
+            <span class="ci-name">未分类字卡</span>
+            <span class="ci-count">${LC.CardLibrary.countBySubCat(cat, '')}</span>
+          </div>`;
+        this.el.groupCatList.querySelectorAll('.cat-item.pick').forEach(el =>
+          el.addEventListener('click', () => this._groupMove(cat, el.dataset.sub)));
+        return;
+      }
+      // 普通模块：列出可选分类（当前分类除外），点选即移动
+      const cats = LC.CardLibrary.getAllCategories(mod);
       const curCat = this._catFilter;
-      const target = cats.filter(c => c !== curCat && c !== '未分类字卡' && c !== '全部字卡');
-      // 用 prompt 简单实现（后续可换成弹窗）
-      const opts = ['未分类', ...target];
-      const msg = `选择目标分类（输入序号）:\n${opts.map((c, i) => `${i + 1}. ${c}`).join('\n')}`;
-      const ans = prompt(msg);
-      if (ans === null) return;
-      const idx = parseInt(ans) - 1;
-      if (isNaN(idx) || idx < 0 || idx >= opts.length) { this._toast('无效选择'); return; }
-      const dest = opts[idx] === '未分类' ? '' : opts[idx];
+      const opts = ['未分类', ...cats.filter(c => c !== '未分类' && c !== curCat)];
+      this.el.groupCatList.innerHTML = opts.map(c => `
+        <div class="cat-item pick" data-cat="${esc(c)}">
+          <span class="ci-name">${esc(c)}</span>
+          <span class="ci-count">${LC.CardLibrary.countByCategory(c === '未分类' ? '未分类字卡' : c, mod)}</span>
+        </div>`).join('');
+      this.el.groupCatList.querySelectorAll('.cat-item.pick').forEach(el =>
+        el.addEventListener('click', () => this._groupMove(el.dataset.cat, '')));
+    },
+    /** 执行移动：系统拼词带小分类，其他模块只改分类 */
+    _groupMove(destCat, destSub) {
+      const isSys = (this._activeModule === 'systemWord');
       let count = 0;
       for (const id of this._multiSel) {
-        const card = LC.CardLibrary.getById('main', id);
-        if (card) { LC.CardLibrary.update('main', id, { category: dest }); count++; }
+        const card = LC.CardLibrary.getById(this._activeModule, id);
+        if (!card) continue;
+        if (isSys) LC.CardLibrary.update(this._activeModule, id, { category: destCat || '未分类', subCat: destSub || '' });
+        else LC.CardLibrary.update(this._activeModule, id, { category: destCat || '未分类' });
+        count++;
       }
       this._multiSel.clear();
+      this._hideModal('groupModal');
       this._renderCatChips();
       this._renderMainList();
-      this._toast(`已移动 ${count} 条到「${dest || '未分类'}」`, 2000);
+      this._toast(`已移动 ${count} 条到「${destCat || '未分类'}${destSub ? ' · ' + destSub : ''}」`, 2000);
     },
     _multiDeleteSelected() {
       if (!this._multiSel.size) { this._toast('请先选中字卡'); return; }
       if (!confirm(`确认删除选中的 ${this._multiSel.size} 条字卡？`)) return;
       let count = 0;
       for (const id of [...this._multiSel]) {
-        if (LC.CardLibrary.remove('main', id)) count++;
+        if (LC.CardLibrary.remove(this._activeModule, id)) count++;
       }
       this._multiSel.clear();
       this._renderCatChips();
@@ -1508,16 +1791,28 @@ window.LoveChat = window.LoveChat || {};
     /* --- 表情库图片网格面板 --- */
     _renderStickerPanel() {
       const cards = LC.CardLibrary.getAll('sticker').filter(c => typeof c.content === 'string' && c.content.startsWith('data:image/'));
-      // 头部"添加图片"按钮固定在网格首位，不参与分页
-      this.el.panelBody.innerHTML = `<div class="grid-cards" id="stickerGrid">
-        <div class="grid-add" id="stickerAdd">
-          <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-          <span>添加图片</span>
+      // 模式状态复位（每次进入表情库面板都是普通状态），并清掉残留的目标浮窗
+      this._stickerMode = 'normal';
+      this._stickerSel = [];
+      this._stickerClearTarget();
+      // 头部"添加图片"按钮固定在网格首位，不参与分页；上方是 多选/移动/删除 按钮行
+      this.el.panelBody.innerHTML = `<div id="stickerWrap">
+        <div class="sticker-mgmt-bar">
+          <button class="st-mgmt-btn" id="stSelBtn">多选</button>
+          <button class="st-mgmt-btn" id="stMoveBtn">移动</button>
+          <button class="st-mgmt-btn" id="stDelBtn">删除</button>
+        </div>
+        <div class="grid-cards" id="stickerGrid">
+          <div class="grid-add" id="stickerAdd">
+            <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+            <span>添加图片</span>
+          </div>
         </div>
       </div>`;
       const grid = $('#stickerGrid');
       const stickerAdd = $('#stickerAdd');
       if (stickerAdd) stickerAdd.addEventListener('click', () => this._onAddStickerFile());
+      this._bindStickerMgmt();
       if (!grid) return;
       if (!cards.length) return; // 头部"添加图片"按钮已渲染
       const renderItem = (c) => {
@@ -1600,7 +1895,11 @@ window.LoveChat = window.LoveChat || {};
       if (!grid) return;
       grid.querySelectorAll('.grid-card').forEach(card => {
         let timer = null;
-        const start = (e) => { timer = setTimeout(() => { e.preventDefault(); card.classList.add('show-del'); }, 450); };
+        const start = (e) => {
+          // 表情库处于多选/移动模式时禁用长按删除（点击已由模式逻辑接管）
+          if (module === 'sticker' && this._stickerMode && this._stickerMode !== 'normal') return;
+          timer = setTimeout(() => { e.preventDefault(); card.classList.add('show-del'); }, 450);
+        };
         const cancel = () => { if (timer) clearTimeout(timer); };
         card.addEventListener('touchstart', start, { passive: true });
         card.addEventListener('touchend', cancel);
@@ -1614,6 +1913,190 @@ window.LoveChat = window.LoveChat || {};
       });
       // 点击空白取消删除态
       document.addEventListener('click', () => grid.querySelectorAll('.grid-card.show-del').forEach(c => c.classList.remove('show-del')), { once: true });
+      // 滚动列表时自动退出删除按钮状态（表情库与 Emoji 一致，用户要求）
+      if (!this._gridDelScrollBound) {
+        this.el.panelBody.addEventListener('scroll', () => {
+          document.querySelectorAll('.grid-card.show-del').forEach(c => c.classList.remove('show-del'));
+        }, { passive: true });
+        this._gridDelScrollBound = true;
+      }
+    },
+
+    /* ============ 表情库：多选 / 移动 / 删除 ============
+     * 交互（用户确认的方案）：
+     *   多选：进入选择模式，点图勾选/取消，记录选择顺序（角标显示序号）；
+     *         再点一次多选 = 退出且不保存选择
+     *   移动：多选完后进入移动模式——全部图片蒙灰压暗，点任意一张（插空目标）
+     *         该图变亮并弹出"放在图片前面/放在图片后面"，选好后按选择顺序
+     *         把选中的图片整体移到该位置；点空白取消目标；移动模式下再点
+     *         "移动" = 退回选择模式并保持选择；移动完成 = 完全退出（用户确认）
+     *   删除：多选后点击，应用内确认弹窗防误删
+     * 状态：_stickerMode: 'normal' | 'select' | 'move'
+     *       _stickerSel: 已选 id 数组（按选择顺序）
+     *       _stickerTarget: 移动模式当前目标图 id */
+    _bindStickerMgmt() {
+      const wrap = $('#stickerWrap');
+      const grid = $('#stickerGrid');
+      if (!wrap || !grid) return;
+      $('#stSelBtn').addEventListener('click', () => {
+        if (this._stickerMode === 'select' || this._stickerMode === 'move') this._stickerExitModes(); // 再点=退出（不保存选择）
+        else { this._stickerMode = 'select'; this._stickerApplyModes(); }
+      });
+      $('#stMoveBtn').addEventListener('click', () => {
+        if (this._stickerMode === 'move') { // 移动模式下再点=退回选择模式，保持选择
+          this._stickerMode = 'select';
+          this._stickerClearTarget();
+          this._stickerApplyModes();
+          return;
+        }
+        if (this._stickerMode === 'select') {
+          if (!this._stickerSel.length) { this._toast('先点选图片再移动'); return; }
+          this._stickerMode = 'move';
+          this._stickerApplyModes();
+        } else this._toast('先点「多选」选择图片');
+      });
+      $('#stDelBtn').addEventListener('click', () => {
+        if (this._stickerMode !== 'select' || !this._stickerSel.length) { this._toast('先多选要删除的图片'); return; }
+        this._stickerConfirmDelete();
+      });
+      // 图片点击：选择模式=勾选/取消；移动模式=选插入目标（目标旁弹浮窗）
+      grid.addEventListener('click', (e) => {
+        const card = e.target.closest('.grid-card');
+        if (!card) return;
+        if (this._stickerMode === 'select') this._stickerToggleSel(card);
+        else if (this._stickerMode === 'move') this._stickerPickTarget(card);
+      });
+      // 移动模式下点空白（非图片、非按钮行）= 取消当前目标，恢复蒙灰
+      wrap.addEventListener('click', (e) => {
+        if (this._stickerMode !== 'move') return;
+        if (e.target.closest('.grid-card') || e.target.closest('.sticker-mgmt-bar')) return;
+        this._stickerClearTarget();
+      });
+    },
+    /** 把当前模式/选中状态刷到界面（按钮高亮、蒙灰、序号角标） */
+    _stickerApplyModes() {
+      const grid = $('#stickerGrid');
+      if (!grid) return;
+      const mode = this._stickerMode;
+      $('#stSelBtn').classList.toggle('active', mode === 'select');
+      $('#stMoveBtn').classList.toggle('active', mode === 'move');
+      grid.classList.toggle('mode-select', mode === 'select');
+      grid.classList.toggle('mode-move', mode === 'move');
+      grid.querySelectorAll('.grid-card').forEach(el => {
+        const idx = this._stickerSel.indexOf(el.dataset.id);
+        el.classList.toggle('st-selected', idx >= 0);
+        if (idx >= 0) el.dataset.selIdx = idx + 1;
+        else el.removeAttribute('data-sel-idx');
+      });
+    },
+    /** 选择模式：勾选/取消一张（记录点击顺序） */
+    _stickerToggleSel(card) {
+      const id = card.dataset.id;
+      const i = this._stickerSel.indexOf(id);
+      if (i >= 0) this._stickerSel.splice(i, 1);
+      else this._stickerSel.push(id);
+      this._stickerApplyModes();
+    },
+    /** 移动模式：点选插入目标（该图变亮，图片旁弹出"放在图片前面/后面"浮窗） */
+    _stickerPickTarget(card) {
+      if (this._stickerSel.includes(card.dataset.id)) { this._toast('这张已在待移动的选里'); return; }
+      const again = this._stickerTarget === card.dataset.id;
+      this._stickerClearTarget();
+      if (again) return; // 再点同一个目标 = 取消
+      this._stickerTarget = card.dataset.id;
+      card.classList.add('st-target');
+      // 浮窗（复用导出浮窗的 popup-menu 样式，手机上比图片内小按钮好按）
+      let menu = $('#stPlaceMenu');
+      if (!menu) {
+        menu = document.createElement('div');
+        menu.className = 'popup-menu';
+        menu.id = 'stPlaceMenu';
+        menu.innerHTML = `<button class="popup-item" data-pos="before">放在图片前面</button>
+          <button class="popup-item" data-pos="after">放在图片后面</button>`;
+        document.body.appendChild(menu);
+        menu.addEventListener('click', (e) => {
+          const btn = e.target.closest('.popup-item');
+          if (!btn) return;
+          this._stickerMoveTo(btn.dataset.pos);
+        });
+        // 点浮窗外部：关闭浮窗并取消目标（恢复蒙灰）；点其他图片除外（那是切换目标）
+        document.addEventListener('click', (e) => {
+          if (menu.hidden || menu.contains(e.target)) return;
+          if (e.target.closest && e.target.closest('.grid-card')) return;
+          if (this._stickerMode === 'move') this._stickerClearTarget();
+        });
+      }
+      const r = card.getBoundingClientRect();
+      const menuW = 160, menuH = 96;
+      let left = r.left + r.width / 2 - menuW / 2;
+      if (left < 8) left = 8;
+      if (left + menuW > window.innerWidth - 8) left = window.innerWidth - 8 - menuW;
+      let top = r.bottom + 6; // 默认图片下方
+      if (top + menuH > window.innerHeight - 8) top = r.top - menuH - 6; // 下方放不下改上方
+      if (top < 8) top = 8;
+      menu.style.left = left + 'px';
+      menu.style.top = top + 'px';
+      menu.hidden = false;
+    },
+    /** 取消移动模式的当前目标（恢复蒙灰，关浮窗） */
+    _stickerClearTarget() {
+      this._stickerTarget = null;
+      const menu = $('#stPlaceMenu');
+      if (menu) menu.hidden = true;
+      const grid = $('#stickerGrid');
+      if (!grid) return;
+      grid.querySelectorAll('.grid-card.st-target').forEach(el => {
+        el.classList.remove('st-target');
+        const b = el.querySelector('.st-place-btns');
+        if (b) b.remove();
+      });
+    },
+    /** 执行移动：把选中的图片按选择顺序插到目标前/后，完成后完全退出（用户确认） */
+    _stickerMoveTo(pos) {
+      const targetId = this._stickerTarget;
+      if (!targetId) return;
+      const selIds = [...this._stickerSel];
+      const selSet = new Set(selIds);
+      const visible = LC.CardLibrary.getAll('sticker').filter(c => typeof c.content === 'string' && c.content.startsWith('data:image/'));
+      const restIds = visible.filter(c => !selSet.has(c.id)).map(c => c.id);
+      const tIdx = restIds.indexOf(targetId);
+      if (tIdx < 0) return;
+      restIds.splice(pos === 'before' ? tIdx : tIdx + 1, 0, ...selIds);
+      LC.CardLibrary.reorder('sticker', restIds);
+      this._stickerExitModes();
+      this._renderPanelContent();
+    },
+    /** 退出所有模式并清空选择 */
+    _stickerExitModes() {
+      this._stickerMode = 'normal';
+      this._stickerSel = [];
+      this._stickerClearTarget();
+      this._stickerApplyModes();
+    },
+    /** 批量删除确认弹窗（应用内样式，防误删） */
+    _stickerConfirmDelete() {
+      let m = $('#stDelModal');
+      if (!m) {
+        m = document.createElement('div');
+        m.className = 'modal'; m.id = 'stDelModal';
+        m.innerHTML = `<div class="modal-content">
+          <h3 class="modal-title">删除确认</h3>
+          <p class="st-del-text" id="stDelText"></p>
+          <div class="modal-actions">
+            <button class="ghost-btn" id="stDelCancel">取消</button>
+            <button class="primary-btn" id="stDelOk">删除</button>
+          </div></div>`;
+        document.body.appendChild(m);
+        $('#stDelCancel').addEventListener('click', () => this._hideModal('stDelModal'));
+        $('#stDelOk').addEventListener('click', () => {
+          for (const id of this._stickerSel) LC.CardLibrary.remove('sticker', id);
+          this._hideModal('stDelModal');
+          this._stickerExitModes();
+          this._renderPanelContent();
+        });
+      }
+      $('#stDelText').textContent = `确定删除选中的 ${this._stickerSel.length} 张图片吗？删除后无法恢复。`;
+      this._showModal('stDelModal');
     },
 
     /* ============ 添加按钮 ============ */
@@ -1697,9 +2180,11 @@ window.LoveChat = window.LoveChat || {};
       this.el.cardWeightField.style.display = mod.type === 'image' ? 'none' : '';
       // 分类下拉
       if (mod.hasCategory) {
-        const cats = LC.CardLibrary.getAllCategories();
+        const cats = LC.CardLibrary.getAllCategories(module);
         this.el.cardCategorySelect.innerHTML = '<option value="">选已有</option>' + cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
       }
+      // 系统拼词：显示小分类栏（选了八大分类之一时才生效）
+      this.el.cardSubCatFields.hidden = (module !== 'systemWord');
       // 批量提示
       this.el.cardBatchHint.style.display = (mod.type === 'text' || mod.type === 'emoji') ? '' : 'none';
       if (id) {
@@ -1707,14 +2192,25 @@ window.LoveChat = window.LoveChat || {};
         if (!card) return;
         this.el.cardTextInput.value = card.content;
         this.el.cardCategoryInput.value = card.category || '';
+        this.el.cardSubCatInput.value = card.subCat || '';
         this.el.cardWeightInput.value = card.weight;
       } else {
         this.el.cardTextInput.value = '';
         this.el.cardCategoryInput.value = '';
+        this.el.cardSubCatInput.value = '';
         this.el.cardWeightInput.value = 1;
       }
+      this._refreshSubCatOptions();
       this._showModal('cardModal');
       setTimeout(() => this.el.cardTextInput.focus(), 100);
+    },
+    /** 字卡弹窗：按当前填写的大分类刷新小分类下拉选项（仅系统拼词） */
+    _refreshSubCatOptions() {
+      const module = this._editingCard?.module;
+      if (module !== 'systemWord' || !this.el.cardSubCatSelect) return;
+      const cat = this.el.cardCategoryInput.value.trim();
+      const subs = LC.WORD_SYS_CATS.includes(cat) ? LC.CardLibrary.getSubCats(cat) : [];
+      this.el.cardSubCatSelect.innerHTML = '<option value="">选已有</option>' + subs.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
     },
     _closeCardModal() { this._hideModal('cardModal'); this._editingCard = null; },
     _onSaveCard() {
@@ -1726,12 +2222,15 @@ window.LoveChat = window.LoveChat || {};
       // 批量：换行分隔
       const lines = raw.split('\n').map(s => s.trim()).filter(Boolean);
       if (!lines.length) { this._toast('请填写内容'); this.el.cardTextInput.focus(); return; }
+      // 分类 + 小分类（小分类只在系统拼词的八大分类下生效，未分类/其他模块一律清空）
+      const cat = mod.hasCategory ? (this.el.cardCategoryInput.value.trim() || '未分类') : '';
+      const sub = (module === 'systemWord' && LC.WORD_SYS_CATS.includes(cat)) ? (this.el.cardSubCatInput.value.trim() || '') : '';
       if (id) {
         // 编辑单条（取第一行）
-        LC.CardLibrary.update(module, id, { content: lines[0], category: mod.hasCategory ? (this.el.cardCategoryInput.value.trim() || '未分类') : '', weight: parseInt(this.el.cardWeightInput.value) || 1 });
+        LC.CardLibrary.update(module, id, { content: lines[0], category: cat, subCat: sub, weight: parseInt(this.el.cardWeightInput.value) || 1 });
       } else {
         for (const line of lines) {
-          LC.CardLibrary.add(module, { content: line, category: mod.hasCategory ? (this.el.cardCategoryInput.value.trim() || '未分类') : '', weight: parseInt(this.el.cardWeightInput.value) || 1 });
+          LC.CardLibrary.add(module, { content: line, category: cat, subCat: sub, weight: parseInt(this.el.cardWeightInput.value) || 1 });
         }
       }
       this._closeCardModal();
@@ -1746,12 +2245,14 @@ window.LoveChat = window.LoveChat || {};
     },
 
     /* ============ 字卡库内顶层功能弹窗互斥 ============
-     * 规则：分类管理 / 按分类导出 / 全量导出 / 导入 这 4 个 modal 之间互斥
-     * 开一个前关掉其他三个；同时打开任意一个前如果多选模式激活要先退出多选
+     * 规则：分类管理 / 分组 / 按分类导出 / 全量导出 / 导入 这些 modal 之间互斥
+     * 开一个前关掉其他；同时打开任意一个前如果多选模式激活要先退出多选
+     * 例外：分组弹窗在多选模式内使用，打开它不退出多选
      * 子分支选项（如导入弹窗里的"覆盖"/"叠加"）不算独立功能，不影响导入弹窗本身 */
     _closeLibraryModalsExcept(keep) {
       // 退出多选模式（清空已选 + 隐藏多选条 + 同步按钮颜色，避免 active 样式残留）
-      if (this._multiSelMode) {
+      // 分组弹窗本身依赖多选，keep 为 groupModal 时不能退出
+      if (keep !== 'groupModal' && this._multiSelMode) {
         this._multiSelMode = false;
         this._multiSel.clear();
         const bar = $('#multiBar'); if (bar) bar.hidden = true;
@@ -1760,68 +2261,141 @@ window.LoveChat = window.LoveChat || {};
       }
       // 关掉其他 modal
       if (keep !== 'categoryModal')   this._hideModal('categoryModal');
+      if (keep !== 'groupModal')      this._hideModal('groupModal');
       if (keep !== 'exportCatModal')  this._hideModal('exportCatModal');
       if (keep !== 'exportFullModal') this._hideModal('exportFullModal');
       if (keep !== 'importModal')     this._hideModal('importModal');
+      // 拼词导出类型浮窗（子选项浮窗，随其他弹窗一起关闭）
+      this._closeExportWordTypeMenu();
+    },
+    /** 字卡面板内切换分类气泡/小分类气泡/子模块/分组 tab 时调用：
+     *  自动关闭已打开的字卡库弹窗与浮窗（只关弹窗，不退出多选模式）。
+     *  注：真弹窗（分类管理等）自带遮罩挡住背景点不到分类，这里主要收没有遮罩的
+     *  导出/导入小浮窗（popup-menu），以及面板内容被切换后残留的弹窗 */
+    _closePopupsOnNavigate() {
+      this._closeCardModal(); // 编辑/添加字卡弹窗（含 _editingCard 清理）
+      ['categoryModal', 'groupModal', 'exportCatModal', 'exportFullModal', 'importModal'].forEach(id => this._hideModal(id));
+      this._closeExportChoice();       // 导出方式浮窗
+      this._closeExportWordTypeMenu(); // 拼词导出类型浮窗
+      const im = $('#importModeMenu'); if (im) im.hidden = true; // 导入模式浮窗
     },
 
     /* ============ 分类管理 ============ */
     _openCategoryModal() {
       this._closeLibraryModalsExcept('categoryModal');
+      const isSys = (this._activeModule === 'systemWord');
+      // 系统拼词：管理的是大分类下的小分类，默认选中当前正在查看的大分类
+      this._catMgmtSysCat = (isSys && LC.WORD_SYS_CATS.includes(this._catFilter)) ? this._catFilter : null;
+      const title = document.querySelector('#categoryModal .modal-title');
+      if (title) title.textContent = isSys ? '小分类管理' : '分类管理';
+      const addInput = this.el.catAddInput;
+      if (addInput) addInput.placeholder = isSys ? '新小分类名' : '新分类名';
       this._renderCatList();
       this._showModal('categoryModal');
       setTimeout(() => $('#catAddInput').focus(), 100);
     },
     _renderCatList() {
-      const cats = LC.CardLibrary.getAllCategories();
+      const mod = this._activeModule;
+      const isSys = (mod === 'systemWord');
+      const sysRow = this.el.sysCatSelect;
+      const addRow = document.querySelector('.cat-add-row');
+      sysRow.hidden = !isSys;
+      if (isSys) {
+        // 顶部大分类选择行（先选大分类，才能管理/添加它的小分类）
+        sysRow.innerHTML = LC.WORD_SYS_CATS.map(c =>
+          `<button class="cat-chip${c === this._catMgmtSysCat ? ' active' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('');
+        sysRow.querySelectorAll('.cat-chip').forEach(b => b.addEventListener('click', () => {
+          this._catMgmtSysCat = b.dataset.cat;
+          this._renderCatList();
+        }));
+        // 未选大分类：隐藏添加行，列表给提示
+        if (addRow) addRow.style.display = this._catMgmtSysCat ? '' : 'none';
+        if (!this._catMgmtSysCat) {
+          this.el.catList.innerHTML = '<div class="empty-card-list">请先在上方选择大分类，再管理它的小分类</div>';
+          return;
+        }
+        const cat = this._catMgmtSysCat;
+        const subs = LC.CardLibrary.getSubCats(cat);
+        this.el.catList.innerHTML = subs.length ? subs.map(s => `
+          <div class="cat-item" data-sub="${esc(s)}">
+            <span class="ci-name">${esc(s)}</span>
+            <span class="ci-count">${LC.CardLibrary.countBySubCat(cat, s)}</span>
+            <button class="ci-btn cat-rename" title="改名"><svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>
+            <button class="ci-btn cat-delete" title="删除"><svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>
+          </div>`).join('') : '<div class="empty-card-list">还没有小分类</div>';
+        this.el.catList.querySelectorAll('.cat-rename').forEach(b => b.addEventListener('click', () => {
+          const old = b.closest('.cat-item').dataset.sub;
+          const nw = prompt('新小分类名：', old);
+          if (nw && nw.trim() && nw.trim() !== old) {
+            if (LC.CardLibrary.renameSubCat(cat, old, nw.trim())) { this._renderCatList(); this._renderCatChips(); this._renderMainList(); }
+            else this._toast('该小分类已存在');
+          }
+        }));
+        this.el.catList.querySelectorAll('.cat-delete').forEach(b => b.addEventListener('click', () => {
+          const s = b.closest('.cat-item').dataset.sub;
+          if (confirm(`删除小分类"${s}"？其下字卡将归入"未分类字卡"`)) {
+            LC.CardLibrary.deleteSubCat(cat, s);
+            this._renderCatList(); this._renderCatChips(); this._renderMainList();
+          }
+        }));
+        return;
+      }
+      if (addRow) addRow.style.display = '';
+      const cats = LC.CardLibrary.getAllCategories(mod);
       this.el.catList.innerHTML = cats.length ? cats.map(c => `
         <div class="cat-item" data-cat="${esc(c)}">
           <span class="ci-name">${esc(c)}</span>
-          <span class="ci-count">${LC.CardLibrary.countByCategory(c)}</span>
+          <span class="ci-count">${LC.CardLibrary.countByCategory(c, mod)}</span>
           <button class="ci-btn cat-rename" title="改名"><svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>
           <button class="ci-btn cat-delete" title="删除"><svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>
         </div>`).join('') : '<div class="empty-card-list">还没有分类</div>';
       this.el.catList.querySelectorAll('.cat-rename').forEach(b => b.addEventListener('click', () => {
         const old = b.closest('.cat-item').dataset.cat;
         const nw = prompt('新分类名：', old);
-        if (nw && nw.trim() && nw.trim() !== old) { LC.CardLibrary.renameCategory(old, nw.trim()); this._renderCatList(); this._renderCatChips(); this._renderMainList(); }
+        if (nw && nw.trim() && nw.trim() !== old) { LC.CardLibrary.renameCategory(old, nw.trim(), mod); this._renderCatList(); this._renderCatChips(); this._renderMainList(); }
       }));
       this.el.catList.querySelectorAll('.cat-delete').forEach(b => b.addEventListener('click', () => {
         const cat = b.closest('.cat-item').dataset.cat;
-        if (confirm(`删除分类"${cat}"？其下字卡将归入"未分类"`)) { LC.CardLibrary.deleteCategory(cat); this._renderCatList(); this._renderCatChips(); this._renderMainList(); }
+        if (confirm(`删除分类"${cat}"？其下字卡将归入"未分类"`)) { LC.CardLibrary.deleteCategory(cat, mod); this._renderCatList(); this._renderCatChips(); this._renderMainList(); }
       }));
     },
     _onAddCategory() {
+      if (this._activeModule === 'systemWord') {
+        // 拼词分类管理：添加的是当前选中大分类下的小分类（没选大分类不允许添加）
+        if (!this._catMgmtSysCat) { this._toast('请先在上方选择大分类'); return; }
+        const name = this.el.catAddInput.value.trim();
+        if (!name) return;
+        // 固定气泡“未分类字卡”是保留名，不允许自建同名小分类
+        if (name === '未分类字卡') { this._toast('“未分类字卡”是保留名，请换个名字'); return; }
+        if (LC.CardLibrary.addSubCat(this._catMgmtSysCat, name)) {
+          this.el.catAddInput.value = '';
+          this._renderCatList(); this._renderCatChips();
+        } else this._toast('该小分类已存在');
+        return;
+      }
       const name = this.el.catAddInput.value.trim();
       if (!name) return;
-      if (LC.CardLibrary.addCategory(name)) { this.el.catAddInput.value = ''; this._renderCatList(); this._renderCatChips(); }
+      if (LC.CardLibrary.addCategory(name, this._activeModule)) { this.el.catAddInput.value = ''; this._renderCatList(); this._renderCatChips(); }
       else this._toast('该分类已存在');
     },
 
-    /* ============ 查重 ============ */
-    _onDedup() {
-      const r = LC.CardLibrary.dedup();
-      this._renderMainList();
-      this._toast(r.removed ? `删除了 ${r.removed} 条重复字卡` : '没有重复字卡', 2000);
-    },
-
-    /* ============ 全局查重（回复库 + 氛围感） ============ */
+    /* ============ 全局查重（回复库 + 氛围感 + 拼词库） ============ */
     _onGlobalDedup() {
       const r = LC.CardLibrary.dedupAll();
       // 刷新面板（包括分类标签与字卡列表）
       this._renderPanelContent();
-      if (this._activeModule === 'main') { this._renderCatChips(); this._renderMainList(); }
+      if (LC.MODULES[this._activeModule]?.hasCategory) { this._renderCatChips(); this._renderMainList(); }
       this._toast(r.removed ? `全局查重：删除了 ${r.removed} 条重复字卡` : '没有重复字卡', 2000);
     },
 
     /* ============ 导出 ============ */
     _onExportClick(ev) {
-      // 在导出按钮附近弹出选择浮窗（按分类导出 / 全量导出）
+      // 在导出按钮附近弹出选择浮窗（按分类导出主字卡/拼词库 / 全量导出）
       const menu = $('#exportChoiceMenu');
       const btn = $('#exportBtn');
       const r = btn.getBoundingClientRect();
       // 弹窗位置：按钮下方，左对齐按钮右边（不超出右边屏）
-      const menuW = 180;
+      const menuW = 200;
       let left = r.right - menuW; if (left < 8) left = 8;
       let top = r.bottom + 4;
       menu.style.left = left + 'px';
@@ -1832,11 +2406,28 @@ window.LoveChat = window.LoveChat || {};
     _closeExportChoice() {
       const m = $('#exportChoiceMenu'); if (!m) return; m.hidden = true; m._open = false;
     },
-    _openExportCatModal() {
+    /* 拼词库导出：先选类型（自定义/系统）再选分类 */
+    _openExportWordTypeMenu() {
+      this._closeExportChoice();
+      const menu = $('#exportWordTypeMenu');
+      const btn = $('#exportBtn');
+      const r = btn.getBoundingClientRect();
+      const menuW = 160;
+      let left = r.right - menuW; if (left < 8) left = 8;
+      menu.style.left = left + 'px';
+      menu.style.top = (r.bottom + 4) + 'px';
+      menu.hidden = false;
+    },
+    _closeExportWordTypeMenu() { const m = $('#exportWordTypeMenu'); if (m) m.hidden = true; },
+    _openExportCatModal(module = 'main') {
       this._closeLibraryModalsExcept('exportCatModal');
-      const cats = LC.CardLibrary.getAllCategories();
+      // 记录本次按分类导出的目标模块（主字卡 / 自定义拼词 / 系统拼词）
+      this._exportCatModule = module;
+      const mod = LC.MODULES[module];
+      $('#exportCatModal .modal-title').textContent = `按字卡分类导出（${mod.name}）`;
+      const cats = LC.CardLibrary.getAllCategories(module);
       const list = $('#exportCatList');
-      list.innerHTML = cats.length ? cats.map(c => `<label class="check-item"><input type="checkbox" checked data-cat="${esc(c)}">${esc(c)} <span style="color:var(--text-muted);font-size:12px">(${LC.CardLibrary.countByCategory(c)})</span></label>`).join('') : '<div class="empty-card-list">无分类</div>';
+      list.innerHTML = cats.length ? cats.map(c => `<label class="check-item"><input type="checkbox" checked data-cat="${esc(c)}">${esc(c)} <span style="color:var(--text-muted);font-size:12px">(${LC.CardLibrary.countByCategory(c, module)})</span></label>`).join('') : '<div class="empty-card-list">无分类</div>';
       this._showModal('exportCatModal');
     },
     _openExportFullModal() {
@@ -1847,12 +2438,15 @@ window.LoveChat = window.LoveChat || {};
       this._showModal('exportFullModal');
     },
     _doExportByCategory() {
+      const module = this._exportCatModule || 'main';
+      const mod = LC.MODULES[module];
       const checked = [...$('#exportCatList').querySelectorAll('input:checked')].map(i => i.dataset.cat);
-      const cats = checked.length ? checked : LC.CardLibrary.getAllCategories();
-      const json = LC.CardLibrary.exportByCategory(cats);
-      this._download(json, `cards-by-category-${this._dateStr()}.json`);
+      const cats = checked.length ? checked : LC.CardLibrary.getAllCategories(module);
+      const json = LC.CardLibrary.exportByCategory(cats, module);
+      const fileTag = module === 'main' ? 'main' : module;
+      this._download(json, `cards-by-category-${fileTag}-${this._dateStr()}.json`);
       this._closeModal('exportCatModal');
-      this._toast('已导出', 1500);
+      this._toast(`已导出（${mod.name}）`, 1500);
     },
     _doExportFull() {
       const checked = [...$('#exportModList').querySelectorAll('input:checked')].map(i => i.dataset.mod);
@@ -2023,8 +2617,8 @@ window.LoveChat = window.LoveChat || {};
 
     /* ============ 导入 ============ */
     _onImportClick() {
-      // 主字卡显示两种方式；其他模块直接文件导入
-      if (this._activeModule === 'main') {
+      // 支持分类的模块（主字卡 / 自定义拼词 / 系统拼词）显示导入方式弹窗；其他模块直接文件导入
+      if (LC.MODULES[this._activeModule]?.hasCategory) {
         this._closeLibraryModalsExcept('importModal');
         this._showModal('importModal');
       }
@@ -2038,16 +2632,18 @@ window.LoveChat = window.LoveChat || {};
         const reader = new FileReader();
         reader.onload = () => {
           let result;
-          if (mode === 'group') result = LC.CardLibrary.importByGroup(reader.result, importMode);
+          if (mode === 'group') result = LC.CardLibrary.importByGroup(reader.result, importMode, 'main');
+          else if (mode === 'word') result = LC.CardLibrary.importByGroup(reader.result, importMode, 'word');
           else if (mode === 'full') result = LC.CardLibrary.importFull(reader.result, importMode);
           else result = LC.CardLibrary.importModule(reader.result, this._activeModule, importMode);
           if (result.ok) {
             this._renderPanelContent();
-            if (this._activeModule === 'main') { this._renderCatChips(); this._renderMainList(); }
+            if (LC.MODULES[this._activeModule]?.hasCategory) { this._renderCatChips(); this._renderMainList(); }
+            const dest = result.module ? `（已导入到${LC.MODULES[result.module]?.name || result.module}）` : '';
             const msg = result.replaced
-              ? `已覆盖，导入 ${result.added} 条字卡`
-              : `导入成功，新增 ${result.added} 条`;
-            this._toast(msg, 2000);
+              ? `已覆盖，导入 ${result.added} 条字卡${dest}`
+              : `导入成功，新增 ${result.added} 条${dest}`;
+            this._toast(msg, 2400);
             this._closeModal('importModal');
           }
           else this._toast('导入失败：' + result.error, 3000);
@@ -2061,8 +2657,8 @@ window.LoveChat = window.LoveChat || {};
     _toggleImportModeMenu(source = 'group') {
       const m = $('#importModeMenu');
       if (!m.hidden) { this._closeImportModeMenu(); return; }
-      this._importSource = source;  // 记录当前导入来源（'group' / 'full'）
-      const btn = source === 'full' ? $('#importFullBtn') : $('#importGroupBtn');
+      this._importSource = source;  // 记录当前导入来源（'group' / 'word' / 'full'）
+      const btn = source === 'full' ? $('#importFullBtn') : (source === 'word' ? $('#importWordBtn') : $('#importGroupBtn'));
       const r = btn.getBoundingClientRect();
       const menuW = 210;
       let left = r.right - menuW; if (left < 8) left = 8;
@@ -2111,32 +2707,50 @@ window.LoveChat = window.LoveChat || {};
       $('#setEmojiChance').value = Math.round(LC.config.emojiChance*100); $('#emojiChanceValue').textContent = Math.round(LC.config.emojiChance*100)+'%';
       $('#setStickerChance').value = Math.round(LC.config.stickerChance*100); $('#stickerChanceValue').textContent = Math.round(LC.config.stickerChance*100)+'%';
       $('#setPatChance').value = Math.round(LC.config.patChance*100); $('#patChanceValue').textContent = Math.round(LC.config.patChance*100)+'%';
-      // 状态时长（分钟）
-      const sMin = Math.round((LC.config.statusMinMs || 180000) / 60000);
-      const sMax = Math.round((LC.config.statusMaxMs || 600000) / 60000);
+      // 状态时长（小时）
+      const sMin = Math.round((LC.config.statusMinMs || 21600000) / 3600000);
+      const sMax = Math.round((LC.config.statusMaxMs || 43200000) / 3600000);
       $('#setStatusMin').value = sMin;
       $('#setStatusMax').value = sMax;
-      $('#statusHint').textContent = `${sMin} ~ ${sMax} 分钟`;
+      $('#statusHint').textContent = `${sMin} ~ ${sMax} 小时`;
       // 主动发消息
       $('#setProactiveEnabled').checked = !!LC.config.proactiveEnabled;
-      const pMin = LC.config.proactiveIntervalMin || 5;
-      const pMax = LC.config.proactiveIntervalMax || (pMin + 10);
+      const pMin = LC.config.proactiveIntervalMin || 3;
+      const pMax = LC.config.proactiveIntervalMax || (pMin + 7);
       $('#setProactiveIntervalMin').value = pMin;
       $('#setProactiveIntervalMax').value = pMax;
       $('#proactiveIntervalHint').textContent = `${pMin} ~ ${pMax} 分钟`;
       $('#setFailCooldown').value = LC.config.failCooldownMin || 3;
       // 输入体验
       // 信件投递配置
-      $('#setLetterReplyMin').value = LC.config.letterReplyMinHours ?? 17;
-      $('#setLetterReplyMax').value = LC.config.letterReplyMaxHours ?? 21;
-      $('#setLetterReplyCountMin').value = LC.config.letterReplyCountMin ?? 6;
+      $('#setLetterReplyMin').value = LC.config.letterReplyMinHours ?? 12;
+      $('#setLetterReplyMax').value = LC.config.letterReplyMaxHours ?? 24;
+      $('#setLetterReplyCountMin').value = LC.config.letterReplyCountMin ?? 5;
       $('#setLetterReplyCountMax').value = LC.config.letterReplyCountMax ?? 8;
-      $('#setLetterProactiveMin').value = LC.config.letterProactiveMinHours ?? 20;
-      $('#setLetterProactiveMax').value = LC.config.letterProactiveMaxHours ?? 48;
+      $('#setLetterProactiveMin').value = LC.config.letterProactiveMinHours ?? 72;
+      $('#setLetterProactiveMax').value = LC.config.letterProactiveMaxHours ?? 168;
       $('#setLetterProactiveContinuous').checked = !!LC.config.letterProactiveContinuous;
-      $('#letterReplyHoursHint').textContent = `${LC.config.letterReplyMinHours ?? 17} ~ ${LC.config.letterReplyMaxHours ?? 21} 小时`;
-      $('#letterReplyCountHint').textContent = `${LC.config.letterReplyCountMin ?? 6} ~ ${LC.config.letterReplyCountMax ?? 8} 条`;
-      $('#letterProactiveHint').textContent = `${LC.config.letterProactiveMinHours ?? 20} ~ ${LC.config.letterProactiveMaxHours ?? 48} 小时`;
+      $('#setWordEnabled').checked = !!LC.config.wordEnabled;
+      const wMin = LC.config.wordCountMin || 2, wMax = LC.config.wordCountMax || 4;
+      $('#setWordCountMin').value = wMin;
+      $('#setWordCountMax').value = wMax;
+      $('#wordCountHint').textContent = `${wMin} ~ ${wMax} 条`;
+      $('#setWordDisableSystem').checked = !!LC.config.wordDisableSystem;
+      $('#setWordDisableCustom').checked = !!LC.config.wordDisableCustom;
+      $('#setWordLogicLink').checked = !!LC.config.wordLogicLink;
+      // 情绪辅助 / 逻辑关联词辅助：开关状态 + 范围选项显隐与选中态
+      const syncAssistScope = (cfgField, toggleId, rowId) => {
+        const t = $(toggleId), row = $(rowId), cur = LC.config[cfgField + 'Scope'] || 'all';
+        t.checked = !!LC.config[cfgField];
+        row.hidden = !t.checked;
+        row.querySelectorAll('.assist-opt').forEach(x => x.classList.toggle('active', x.dataset.v === cur));
+      };
+      syncAssistScope('moodAssistEnabled', '#setMoodAssistEnabled', '#moodAssistScopeRow');
+      syncAssistScope('wordLogicLink', '#setWordLogicLink', '#wordLogicLinkScopeRow');
+      $('#setEmojiFuse').checked = LC.config.emojiFuse !== false;
+      $('#letterReplyHoursHint').textContent = `${LC.config.letterReplyMinHours ?? 12} ~ ${LC.config.letterReplyMaxHours ?? 24} 小时`;
+      $('#letterReplyCountHint').textContent = `${LC.config.letterReplyCountMin ?? 5} ~ ${LC.config.letterReplyCountMax ?? 8} 条`;
+      $('#letterProactiveHint').textContent = `${LC.config.letterProactiveMinHours ?? 72} ~ ${LC.config.letterProactiveMaxHours ?? 168} 小时`;
       // 背景图
       this._renderBgPreview();
       // 拍一拍标志当前值
@@ -2196,13 +2810,14 @@ window.LoveChat = window.LoveChat || {};
       LC.Storage.set('config', LC.config);
     },
     _onStatusDurChange() {
+      // 状态时长单位：小时（1~720）
       let min = parseFloat($('#setStatusMin').value);
       let max = parseFloat($('#setStatusMax').value);
       if (isNaN(min) || min < 1) min = 1;
       if (isNaN(max) || max < min) max = min;
-      LC.config.statusMinMs = Math.round(min * 60000);
-      LC.config.statusMaxMs = Math.round(max * 60000);
-      $('#statusHint').textContent = `${min} ~ ${max} 分钟`;
+      LC.config.statusMinMs = Math.round(min * 3600000);
+      LC.config.statusMaxMs = Math.round(max * 3600000);
+      $('#statusHint').textContent = `${min} ~ ${max} 小时`;
       LC.Storage.set('config', LC.config);
       LC.ChatEngine.refreshStatus();
     },
@@ -2942,7 +3557,7 @@ window.LoveChat = window.LoveChat || {};
     },
     _closeAllModals() {
       // 静态弹窗 + 可能的动态弹窗；元素不存在直接跳过（防止 null.classList 报错阻断流程）
-      ['cardModal','categoryModal','exportCatModal','exportFullModal','exportChoiceMenu','importModal','importModeMenu','multiSendModal','patModal','stickerPicker','inputExpand','expandMenuSheet','avatarCropModal','choiceModal','choiceDetailModal','bubbleDesignModal','customColorModal']
+      ['cardModal','categoryModal','exportCatModal','exportFullModal','exportChoiceMenu','exportWordTypeMenu','importModal','importModeMenu','multiSendModal','patModal','stickerPicker','inputExpand','expandMenuSheet','avatarCropModal','choiceModal','choiceDetailModal','bubbleDesignModal','customColorModal']
         .forEach(id => this._hideModal(id));
     },
     _toast(msg, dur = 2000) {

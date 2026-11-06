@@ -362,6 +362,34 @@ window.LoveChat = window.LoveChat || {};
       return { kind: 'text', content: s, isWord: true, emojiMerged: false };
     },
 
+    /** 构建一条主字卡拼词消息
+     *  规则（用户确认）：
+     *  - 只拼主字卡自身的字卡，不掺自定义/系统拼词库
+     *  - 抽取数量 = 设置"拼词数量"区间内随机（第一张已由槽位抽好，剩余从主字卡里补）
+     *  - 同一条消息内同一张卡不会重复
+     *  - 段与段之间隔两个空格
+     *  - isWord 标记：显示"自由造句"气泡，emoji 不融合进这条
+     */
+    _buildMainWordUnit(firstCard) {
+      const min = Math.max(1, LC.config.wordCountMin || 2);
+      const max = Math.max(min, LC.config.wordCountMax || 4);
+      let cnt = min + Math.floor(Math.random() * (max - min + 1));
+      const usedIds = new Set([firstCard.id]);
+      const parts = [firstCard.content];
+      for (let j = 1; j < cnt; j++) {
+        let card = null;
+        // 重抽直到抽到本条消息内没出现过的卡（最多尝试 20 次防死循环）
+        for (let tries = 0; tries < 20; tries++) {
+          const c = LC.CardLibrary.selectRandom(this.mainPoolMods());
+          if (c && !usedIds.has(c.id)) { card = c; break; }
+        }
+        if (!card) break;
+        usedIds.add(card.id);
+        parts.push(card.content);
+      }
+      return { kind: 'text', content: parts.join('  '), isWord: true, emojiMerged: false };
+    },
+
     /** 构建回合回复单元序列 */
     _buildReplyUnits(n) {
       const units = [];
@@ -391,7 +419,16 @@ window.LoveChat = window.LoveChat || {};
           if (wordUnit) { units.push(wordUnit); continue; }
         }
         const card = LC.CardLibrary.selectRandom(this.mainPoolMods());
-        if (card) units.push({ kind: 'text', card, content: card.content, emojiMerged: false });
+        if (card) {
+          // ★ 主字卡拼词（二次概率）：开启后，五五开选中主字卡时按概率升级为
+          //   "主字卡拼词"（多张主字卡隔两个空格连成一句），否则单发这张主字卡
+          const mwChance = (LC.config.mainWordEnabled === true) ? (LC.config.mainWordChance || 0) : 0;
+          if (mwChance > 0 && Math.random() < mwChance) {
+            units.push(this._buildMainWordUnit(card));
+            continue;
+          }
+          units.push({ kind: 'text', card, content: card.content, emojiMerged: false });
+        }
       }
       // Emoji 触发
       const emojiLib = LC.CardLibrary.getAll('emoji');

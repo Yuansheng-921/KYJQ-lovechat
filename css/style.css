@@ -744,12 +744,14 @@ body.ui-hidden #multiSendModal { display: none !important; }
 }
 
 /* 设置面板 */
-.settings-body { padding-top: 8px; }
-/* 设置 Tab 栏（基础设定/个性化/对话体验/数据） */
+/* ★ 顶部不设 padding（同回复设定面板的根治方案）：滚动内容不再从冻结条上方的缝里透出 */
+/* 设置 Tab 栏（基础设定/个性化/对话体验/数据）——自带 padding-top 提供顶部留白，
+   冻结时物理贴住滚动区顶端 */
 .settings-tabs {
   display: flex; gap: 0; border-bottom: 1px solid var(--border);
   margin-bottom: 14px; position: sticky; top: 0;
   background: var(--surface-elevated); z-index: 2;
+  padding-top: 8px;
 }
 .settings-tab {
   flex: 1; padding: 10px 4px; font-size: 12px;
@@ -1579,6 +1581,22 @@ body.ui-hidden #multiSendModal { display: none !important; }
   color: var(--text-secondary); border-radius: 50%;
 }
 .cat-item .ci-btn:hover { background: rgba(var(--accent-rgb),0.1); color: var(--accent); }
+/* ---- 分类移动模式 ---- */
+/* 正在移动的分类：高亮 */
+.cat-item.moving-source { border-color: var(--accent); background: rgba(var(--accent-rgb), 0.14); }
+/* 其他分类：变灰，可点击选为目标位置 */
+.cat-item.moving-dim { opacity: .45; cursor: pointer; }
+.cat-item.moving-dim:hover, .cat-item.moving-dim:active { border-color: var(--accent); opacity: .8; }
+/* 移动模式顶部提示 */
+.cat-move-hint { font-size: 12px; color: var(--accent); text-align: center; padding: 2px 0 8px; }
+/* 目标分类上下方的 ↑/↓ 插入条（点击落位） */
+.cat-insert-bar {
+  display: flex; align-items: center; justify-content: center;
+  height: 24px; padding: 0;
+  border: 1.5px dashed var(--accent); border-radius: var(--radius-full);
+  background: rgba(var(--accent-rgb), 0.10); color: var(--accent); cursor: pointer;
+}
+.cat-insert-bar:hover { background: rgba(var(--accent-rgb), 0.22); }
 .cat-add-row { display: flex; gap: 8px; margin-bottom: 10px; }
 .cat-add-row .field-input { flex: 1; }
 
@@ -1631,6 +1649,11 @@ body.ui-hidden #multiSendModal { display: none !important; }
 .ext-tile .ext-icon { font-size: 26px; line-height: 1; }
 .ext-tile .ext-label { font-size: 12px; color: var(--text-secondary); position: relative; }
 .ext-badge { position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px; background: #ff3b30; border-radius: 999px; border: 2px solid var(--surface-solid); display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold; color: #fff; line-height: 1; }
+/* 聊天界面"更多"按钮右上角红点：扩展菜单收起时，里面的功能（如信件投递）有未读也看得到
+   （不显示数字，只是个圆点） */
+#expandMenuBtn { position: relative; }
+.more-badge { position: absolute; top: 3px; right: 3px; width: 9px; height: 9px; background: #ff3b30; border-radius: 50%; }
+.more-badge[hidden] { display: none !important; }
 .ext-badge[hidden] { display: none !important; }
 
 /* ===== 信件投递 ===== */

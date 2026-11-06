@@ -78,6 +78,10 @@ window.LoveChat = window.LoveChat || {};
       if (catMigrated) Storage.set('emptyCats', this._emptyCats);
       // 系统拼词小分类占位（格式 "大分类::小分类"，只记录没有字卡的空小分类）
       this._wordSubCats = (await Storage.get('wordSubCats', [])) || [];
+      // 分类排列顺序（用户在分类管理里手动调整的顺序）：
+      // key = 模块名（main/restricted/customWord）或 "sub::大分类"（系统拼词小分类），
+      // value = 分类名数组。不在数组里的新分类排在最后（保持原有先后）。
+      this._catOrders = (await Storage.get('catOrders', {})) || {};
       // 系统拼词：自动补齐 8 个固定分类（空分类占位，只补缺失的）
       for (const name of LC.WORD_SYS_CATS) this.addCategory(name, 'systemWord');
       // ★ 一次性补发系统拼词预设字卡（v1）：老用户本地已有数据，首次启动载入不到预设，
@@ -252,13 +256,45 @@ window.LoveChat = window.LoveChat || {};
       return false;
     },
 
-    /** 获取分类列表（含空分类） */
+    /** 获取分类列表（含空分类，按用户调整过的顺序排列） */
     getAllCategories(module = 'main') {
       const live = this.getCategories(module);
       const prefix = module + '::';
       const empties = (this._emptyCats || []).filter(k => k.startsWith(prefix)).map(k => k.slice(prefix.length));
-      const all = new Set([...live, ...empties]);
-      return Array.from(all);
+      const all = Array.from(new Set([...live, ...empties]));
+      return this._applyOrder(all, (this._catOrders || {})[module]);
+    },
+
+    /** 按已保存的顺序重排：在顺序表里的按表排，不在的（新建的）跟在后面保持原顺序 */
+    _applyOrder(list, order) {
+      if (!Array.isArray(order) || !order.length) return list;
+      const inList = new Set(list);
+      const ranked = order.filter(n => inList.has(n));
+      const inOrder = new Set(order);
+      const rest = list.filter(n => !inOrder.has(n));
+      return [...ranked, ...rest];
+    },
+
+    /** 把分类 name 移到 target 的上方/下方（pos: 'before' 上方 / 'after' 下方），顺序持久保存 */
+    moveCategoryTo(name, target, pos, module = 'main') {
+      return this._moveToOrder(this.getAllCategories(module), name, target, pos, module);
+    },
+
+    /** 把系统拼词小分类 name 移到 target 的上方/下方（大分类 cat 下） */
+    moveSubCatTo(cat, name, target, pos) {
+      return this._moveToOrder(this.getSubCats(cat), name, target, pos, 'sub::' + cat);
+    },
+
+    _moveToOrder(list, name, target, pos, orderKey) {
+      if (!list.includes(name) || !list.includes(target) || name === target) return false;
+      const arr = list.filter(n => n !== name);
+      const i = arr.indexOf(target);
+      if (i < 0) return false;
+      arr.splice((pos === 'before') ? i : i + 1, 0, name);
+      this._catOrders = this._catOrders || {};
+      this._catOrders[orderKey] = arr;
+      Storage.set('catOrders', this._catOrders);
+      return true;
     },
 
     /** 分类下字卡数 */
@@ -272,7 +308,7 @@ window.LoveChat = window.LoveChat || {};
      * 存储：_wordSubCats 记录空小分类占位（"大分类::小分类"），
      * 卡片上实际出现的小分类自动并入列表（导入的字卡无需占位也能显示） */
 
-    /** 某大分类下的小分类列表（占位在前=建立顺序，卡片上的实际小分类在后） */
+    /** 某大分类下的小分类列表（含空占位，按用户调整过的顺序排列） */
     getSubCats(cat) {
       const live = new Set();
       for (const c of (this.data.systemWord || [])) {
@@ -280,7 +316,8 @@ window.LoveChat = window.LoveChat || {};
       }
       const prefix = cat + '::';
       const empties = (this._wordSubCats || []).filter(k => k.startsWith(prefix)).map(k => k.slice(prefix.length));
-      return Array.from(new Set([...empties, ...live]));
+      const all = Array.from(new Set([...empties, ...live]));
+      return this._applyOrder(all, (this._catOrders || {})['sub::' + cat]);
     },
 
     /** 添加小分类（在指定大分类下建空占位） */

@@ -106,6 +106,7 @@
       <footer class="input-bar">
         <button class="icon-btn" id="expandMenuBtn" title="更多" aria-label="更多">
           <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M5 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm14 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-7 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+          <span class="more-badge" id="moreMenuBadge" hidden></span>
         </button>
         <button class="icon-btn" id="patBtn" title="拍一拍" aria-label="拍一拍">
           <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zm-6-7c.28 0 .5-.22.5-.5V10a2.5 2.5 0 00-5 0v1.5c0 .28.22.5.5.5z"/></svg>
@@ -476,6 +477,14 @@
               </label>
               <label class="field row-field"><span class="field-label">禁用自定义拼词</span>
                 <input type="checkbox" id="setWordDisableCustom" class="field-toggle">
+              </label>
+              <label class="field row-field"><span class="field-label">开启主字卡拼词</span>
+                <span class="field-hint">选中主字卡后按概率把几张主字卡拼成一句</span>
+                <input type="checkbox" id="setMainWordEnabled" class="field-toggle">
+              </label>
+              <label class="field row-field"><span class="field-label">主字卡拼词概率</span>
+                <input type="range" id="setMainWordChance" class="field-range" min="0" max="100" step="5" value="50">
+                <span class="range-value" id="mainWordChanceValue">50%</span>
               </label>
             </div>
           </div>

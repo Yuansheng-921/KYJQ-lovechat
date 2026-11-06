@@ -44,6 +44,7 @@
     if (ok) {
       busy = true;
       try { sessionStorage.setItem(SESSION_KEY, '1'); } catch (e) {}
+      document.removeEventListener('keydown', onKeydown); // ★ 关键：解锁后必须移除，否则退格键被永久拦截
       dotsWrap.classList.add('ok');
       setTimeout(function () {
         el.classList.add('lock-pass'); // 触发淡出
@@ -74,9 +75,10 @@
   // 删除键
   document.getElementById('lockDel').addEventListener('click', backspace);
 
-  // 电脑上也可以直接用键盘输入数字 / 退格
-  document.addEventListener('keydown', function (e) {
+  // 电脑上也可以直接用键盘输入数字 / 退格（仅锁屏存在期间有效，解锁后移除）
+  function onKeydown(e) {
     if (e.key >= '0' && e.key <= '9') press(parseInt(e.key, 10));
     else if (e.key === 'Backspace') { e.preventDefault(); backspace(); }
-  });
+  }
+  document.addEventListener('keydown', onKeydown);
 })();

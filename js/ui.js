@@ -22,6 +22,7 @@ window.LoveChat = window.LoveChat || {};
     _multiMode: false,       // 多条发送激活
     _multiSelMode: false,    // 字卡批量多选激活
     _multiSel: new Set(),    // 字卡批量多选已选 id 集合
+    _listExpanded: {},       // 各模块"显示剩余"的展开状态（key=模块名；关闭字卡面板时清空重置）
     _statusTimeout: null,
     /* 滚动状态（需求1）：
      * _isAtBottom: 用户当前是否在底部附近（距底 ≤ 60px）
@@ -1316,6 +1317,8 @@ window.LoveChat = window.LoveChat || {};
       this.el.cardsPanel.setAttribute('aria-hidden', 'true');
       // 关闭字卡面板时关闭多选模式（避免下次打开还停留在多选）
       if (this._multiSelMode) { this._multiSelMode = false; this._multiSel.clear(); }
+      // 重置"显示剩余"展开状态（下次进面板重新从 80 条分页开始）
+      this._listExpanded = {};
       this._maybeHideOverlay();
       this._closeAllModals();
     },
@@ -1383,7 +1386,9 @@ window.LoveChat = window.LoveChat || {};
         if (opts.emptyHtml) container.innerHTML = opts.emptyHtml;
         return;
       }
-      const pageSize = opts.pageSize || this._cardPageSize;
+      // 该模块已展开过 → 直接渲染全部（展开状态保留到关闭字卡面板为止）
+      const expanded = opts.expandKey && this._listExpanded[opts.expandKey];
+      const pageSize = expanded ? cards.length : (opts.pageSize || this._cardPageSize);
       const toRender = cards.slice(0, pageSize);
       const remaining = cards.length - toRender.length;
       const frag = document.createDocumentFragment();
@@ -1394,6 +1399,8 @@ window.LoveChat = window.LoveChat || {};
         btn.className = 'card-show-more' + (opts.buttonClass ? ' ' + opts.buttonClass : '');
         btn.textContent = `显示剩余 ${remaining} 条`;
         btn.addEventListener('click', () => {
+          // 记住展开状态：之后的多选/移动/删除等重渲染不再收回
+          if (opts.expandKey) this._listExpanded[opts.expandKey] = true;
           btn.remove();
           const moreFrag = document.createDocumentFragment();
           cards.slice(pageSize).forEach(card => moreFrag.appendChild(renderItem(card)));
@@ -1630,6 +1637,7 @@ window.LoveChat = window.LoveChat || {};
       const noSubs = (mod === 'systemWord') && LC.WORD_SYS_CATS.includes(cat)
         && !LC.CardLibrary.getSubCats(cat).length && this._subCatFilter === '';
       this._renderCardListPaginated(list, cards, renderItem, {
+        expandKey: mod,
         emptyHtml: noSubs
           ? '<div class="empty-card-list">该分类还没有小分类<br>可在「分类管理」里创建小分类后，把字卡分进来</div>'
           : '<div class="empty-card-list">没有匹配的字卡</div>'
@@ -1783,6 +1791,7 @@ window.LoveChat = window.LoveChat || {};
         return div;
       };
       this._renderCardListPaginated(grid, cards, renderItem, {
+        expandKey: 'emoji',
         buttonClass: 'grid-show-more'
       });
       this._bindGridCards('emoji');
@@ -1826,8 +1835,10 @@ window.LoveChat = window.LoveChat || {};
       this._renderStickerPaginated(grid, cards, renderItem, 80);
       this._bindGridCards('sticker');
     },
-    /* sticker 专用分页：保留头部"添加图片"按钮位置，新内容追加在其后 */
+    /* sticker 专用分页：保留头部"添加图片"按钮位置，新内容追加在其后；
+     * 展开状态同样记住（多选/移动/删除后重渲染不再收回，关闭面板才重置） */
     _renderStickerPaginated(grid, cards, renderItem, pageSize) {
+      if (this._listExpanded['sticker']) pageSize = cards.length;
       const toRender = cards.slice(0, pageSize);
       const remaining = cards.length - toRender.length;
       const frag = document.createDocumentFragment();
@@ -1837,6 +1848,7 @@ window.LoveChat = window.LoveChat || {};
         btn.className = 'card-show-more grid-show-more';
         btn.textContent = `显示剩余 ${remaining} 条`;
         btn.addEventListener('click', () => {
+          this._listExpanded['sticker'] = true; // 记住展开状态
           btn.remove();
           const moreFrag = document.createDocumentFragment();
           cards.slice(pageSize).forEach(c => moreFrag.appendChild(renderItem(c)));
@@ -1884,35 +1896,46 @@ window.LoveChat = window.LoveChat || {};
         return div;
       };
       this._renderCardListPaginated(list, cards, renderItem, {
+        expandKey: mod,
         emptyHtml: '<div class="empty-card-list">还没有字卡</div>'
       });
     },
 
-    /* 网格卡片长按删除 */
+    /* 网格卡片双击显示删除键（原为长按——手机长按会弹出浏览器系统菜单，改双击） */
     _bindGridCards(module) {
       const gridId = module === 'emoji' ? '#emojiGrid' : '#stickerGrid';
       const grid = $(gridId);
       if (!grid) return;
+      let lastTap = 0, lastCard = null;
       grid.querySelectorAll('.grid-card').forEach(card => {
-        let timer = null;
-        const start = (e) => {
-          // 表情库处于多选/移动模式时禁用长按删除（点击已由模式逻辑接管）
+        card.addEventListener('click', () => {
+          // 表情库处于多选/移动模式时点击已由模式逻辑接管，不触发删除键
           if (module === 'sticker' && this._stickerMode && this._stickerMode !== 'normal') return;
-          timer = setTimeout(() => { e.preventDefault(); card.classList.add('show-del'); }, 450);
-        };
-        const cancel = () => { if (timer) clearTimeout(timer); };
-        card.addEventListener('touchstart', start, { passive: true });
-        card.addEventListener('touchend', cancel);
-        card.addEventListener('touchmove', cancel);
-        card.addEventListener('mousedown', start);
-        card.addEventListener('mouseup', cancel);
-        card.addEventListener('mouseleave', cancel);
+          const now = Date.now();
+          if (lastCard === card && now - lastTap < 350) {
+            // 双击：显示删除键（再双击同一张 = 收起）
+            const showing = card.classList.contains('show-del');
+            grid.querySelectorAll('.grid-card.show-del').forEach(c => c.classList.remove('show-del'));
+            if (!showing) card.classList.add('show-del');
+            lastTap = 0; lastCard = null;
+          } else {
+            lastTap = now; lastCard = card;
+          }
+        });
       });
       grid.querySelectorAll('.gc-del').forEach(btn => {
         btn.addEventListener('click', (e) => { e.stopPropagation(); LC.CardLibrary.remove(module, btn.dataset.id); this._renderPanelContent(); });
       });
-      // 点击空白取消删除态
-      document.addEventListener('click', () => grid.querySelectorAll('.grid-card.show-del').forEach(c => c.classList.remove('show-del')), { once: true });
+      // 屏蔽长按系统菜单（手机长按图片/emoji 会弹出浏览器的保存菜单，干扰操作）
+      grid.addEventListener('contextmenu', (e) => { if (e.target.closest('.grid-card')) e.preventDefault(); });
+      // 点击网格外空白取消删除态（常驻绑定；原 once 绑定触发一次后就失效了）
+      if (!this._gridBlankBound) {
+        document.addEventListener('click', (e) => {
+          if (e.target.closest && (e.target.closest('#emojiGrid') || e.target.closest('#stickerGrid'))) return;
+          document.querySelectorAll('.grid-card.show-del').forEach(c => c.classList.remove('show-del'));
+        });
+        this._gridBlankBound = true;
+      }
       // 滚动列表时自动退出删除按钮状态（表情库与 Emoji 一致，用户要求）
       if (!this._gridDelScrollBound) {
         this.el.panelBody.addEventListener('scroll', () => {

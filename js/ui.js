@@ -178,6 +178,7 @@ window.LoveChat = window.LoveChat || {};
         const act = btn.dataset.act;
         this._closeExportChoice();
         if (act === 'cat') this._openExportCatModal('main');
+        else if (act === 'restricted') this._openExportCatModal('restricted');
         else if (act === 'wordcat') this._openExportWordTypeMenu();
         else if (act === 'full') this._openExportFullModal();
       });
@@ -189,6 +190,7 @@ window.LoveChat = window.LoveChat || {};
         if (wordMod) this._openExportCatModal(wordMod);
       });
       $('#importGroupBtn').addEventListener('click', () => this._toggleImportModeMenu('group'));
+      $('#importRestrictedBtn').addEventListener('click', () => this._toggleImportModeMenu('restricted'));
       $('#importWordBtn').addEventListener('click', () => this._toggleImportModeMenu('word'));
       $('#importFullBtn').addEventListener('click', () => this._toggleImportModeMenu('full'));
       // 导入方式选择（覆盖 / 添加）：按分组导入和全量导入共用此菜单
@@ -424,11 +426,12 @@ window.LoveChat = window.LoveChat || {};
         this._closeExportWordTypeMenu();
         return;
       }
-      // 导入方式浮窗（覆盖/添加）：点任何空白处关闭（三种导入按钮都触发该菜单，需排除）
+      // 导入方式浮窗（覆盖/添加）：点任何空白处关闭（四种导入按钮都触发该菜单，需排除）
       const importModeMenu = $('#importModeMenu');
       if (importModeMenu && !importModeMenu.hidden
           && !importModeMenu.contains(ev.target)
           && !$('#importGroupBtn').contains(ev.target)
+          && !$('#importRestrictedBtn').contains(ev.target)
           && !$('#importWordBtn').contains(ev.target)
           && !$('#importFullBtn').contains(ev.target)) {
         this._closeImportModeMenu();
@@ -2656,6 +2659,7 @@ window.LoveChat = window.LoveChat || {};
         reader.onload = () => {
           let result;
           if (mode === 'group') result = LC.CardLibrary.importByGroup(reader.result, importMode, 'main');
+          else if (mode === 'restricted') result = LC.CardLibrary.importByGroup(reader.result, importMode, 'restricted');
           else if (mode === 'word') result = LC.CardLibrary.importByGroup(reader.result, importMode, 'word');
           else if (mode === 'full') result = LC.CardLibrary.importFull(reader.result, importMode);
           else result = LC.CardLibrary.importModule(reader.result, this._activeModule, importMode);
@@ -2680,8 +2684,11 @@ window.LoveChat = window.LoveChat || {};
     _toggleImportModeMenu(source = 'group') {
       const m = $('#importModeMenu');
       if (!m.hidden) { this._closeImportModeMenu(); return; }
-      this._importSource = source;  // 记录当前导入来源（'group' / 'word' / 'full'）
-      const btn = source === 'full' ? $('#importFullBtn') : (source === 'word' ? $('#importWordBtn') : $('#importGroupBtn'));
+      this._importSource = source;  // 记录当前导入来源（'group' / 'restricted' / 'word' / 'full'）
+      const btn = source === 'full' ? $('#importFullBtn')
+        : source === 'word' ? $('#importWordBtn')
+        : source === 'restricted' ? $('#importRestrictedBtn')
+        : $('#importGroupBtn');
       const r = btn.getBoundingClientRect();
       const menuW = 210;
       let left = r.right - menuW; if (left < 8) left = 8;

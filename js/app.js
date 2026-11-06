@@ -96,9 +96,14 @@ window.LoveChat = window.LoveChat || {};
         // 仅迁移等于旧默认值的头像，用户自定义的 emoji/图片头像不受影响
         if (config.partner && config.partner.avatar === '🌸') config.partner.avatar = '';
         if (config.user && config.user.avatar === '🌙') config.user.avatar = '';
+        // v7 迁移：旧字段 moodAssistScope → 新字段 moodAssistEnabledScope（UI 存值时拼 cfgField+'Scope'，
+        // 开关叫 moodAssistEnabled，拼出来就是 moodAssistEnabledScope，和 config 默认值统一）
+        if (saved.moodAssistScope && !saved.moodAssistEnabledScope) {
+          saved.moodAssistEnabledScope = saved.moodAssistScope;
+        }
         // 拷贝除 partner/user 外的所有顶层字段
         Object.keys(saved).forEach(k => {
-          if (k !== 'partner' && k !== 'user' && k !== 'typingDelay') config[k] = saved[k];
+          if (k !== 'partner' && k !== 'user' && k !== 'typingDelay' && k !== 'moodAssistScope') config[k] = saved[k];
         });
       }
       return config;

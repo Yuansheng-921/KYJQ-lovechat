@@ -105,7 +105,7 @@ window.LoveChat = window.LoveChat || {};
     restrictedMode: false,     // 限制模式：true=开启（限制字卡不参与自动抽取）；false=关闭（并入主字卡抽取）
     wordLogicLinkScope: 'all', // 逻辑关联词辅助应用范围：'all' 全部字卡 | 'word' 仅拼词 | 'main' 仅主字卡
     moodAssistEnabled: false,  // 开启情绪辅助
-    moodAssistScope: 'all',    // 情绪辅助应用范围（同上三个值）
+    moodAssistEnabledScope: 'all', // 情绪辅助应用范围：'all' 全部字卡 | 'word' 仅拼词 | 'main' 仅主字卡
     // Emoji 与字卡融合发送（true=可融合进文字或独立成条；false=只独立成条）
     emojiFuse: true,
   };

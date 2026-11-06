@@ -446,7 +446,7 @@ window.LoveChat = window.LoveChat || {};
       if (u.kind === 'text') {
         const assist = {};
         if (u.isWord) assist.word = true;
-        if (LC.config.moodAssistEnabled && this._assistScopeMatch('moodAssistScope', u.isWord)
+        if (LC.config.moodAssistEnabled && this._assistScopeMatch('moodAssistEnabledScope', u.isWord)
           && LC.CardLibrary.getAll('moodAssist').length && Math.random() < 0.5) {
           const c = LC.CardLibrary.selectRandom('moodAssist');
           if (c) assist.mood = c.content;

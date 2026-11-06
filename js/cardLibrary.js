@@ -521,10 +521,15 @@ window.LoveChat = window.LoveChat || {};
     importByGroup(jsonText, mode = 'merge', target = 'main') {
       let data;
       try { data = JSON.parse(jsonText); } catch (e) { return { ok: false, error: 'JSON 格式错误：' + e.message }; }
-      // 确定导入目标模块
-      let module = (data.module && LC.MODULES[data.module] && LC.MODULES[data.module].hasCategory)
-        ? data.module
-        : (target === 'word' ? 'customWord' : 'main');
+      // 确定导入目标模块：
+      //  - target === 'word'（历史兼容）→ 强制导入自定义拼词
+      //  - target 是有效带分类模块（如 'restricted'、'main'）→ 强制导入该模块（文件来自哪个模块都不管）
+      //  - target 为空或无效 → 优先用文件里的 data.module，没有就回退到 'main'
+      let module;
+      if (target === 'word') module = 'customWord';
+      else if (target && LC.MODULES[target]?.hasCategory) module = target;
+      else module = (data.module && LC.MODULES[data.module] && LC.MODULES[data.module].hasCategory)
+        ? data.module : 'main';
       // 先解析出待导入条目（格式不符直接返回，不动旧数据，避免覆盖模式误删）
       const incoming = [];
       if (data.mode === 'byCategory' && data.grouped) {

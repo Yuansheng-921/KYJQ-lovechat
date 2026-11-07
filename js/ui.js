@@ -312,7 +312,12 @@ window.LoveChat = window.LoveChat || {};
       // 抉择弹窗
       $('#extChoiceBtn').addEventListener('click', () => this._openChoiceModal());
       // 表情大乱斗（先做按钮，功能后续实现）
-      $('#extEmojiRumbleBtn').addEventListener('click', () => { this._toast('表情大乱斗开发中～'); this._closeExpandMenu(); });
+      $('#extEmojiRumbleBtn').addEventListener('click', () => { this._closeExpandMenu(); this._startEmojiBattle(); });
+      $('#battleExitBtn').addEventListener('click', () => {
+        if (!LC.ChatEngine.isBattleActive()) return;
+        const stats = LC.ChatEngine.endBattle();
+        this._endEmojiBattle('user', stats);
+      });
       // 信件投递
       $('#extLettersBtn').addEventListener('click', () => this._openLetterScreen());
       $('#letterCloseBtn').addEventListener('click', () => this._closeLetterScreen());
@@ -358,6 +363,32 @@ window.LoveChat = window.LoveChat || {};
         const v = parseInt(ev.target.value);
         LC.config.mainWordChance = v / 100;
         $('#mainWordChanceValue').textContent = v + '%';
+        LC.Storage.set('config', LC.config);
+      });
+      // 表情大乱斗：单次回复数量区间 + 表情回复延迟区间（秒）；两值相同 = 固定
+      const onRumbleCount = () => {
+        let mn = Math.min(10, Math.max(1, parseInt($('#setRumbleCountMin').value) || 1));
+        let mx = Math.min(10, Math.max(mn, parseInt($('#setRumbleCountMax').value) || mn));
+        LC.config.rumbleCountMin = mn; LC.config.rumbleCountMax = mx;
+        LC.Storage.set('config', LC.config);
+        $('#rumbleCountHint').textContent = (mn === mx) ? `固定 ${mn} 个` : `${mn} ~ ${mx} 个`;
+      };
+      $('#setRumbleCountMin').addEventListener('input', onRumbleCount);
+      $('#setRumbleCountMax').addEventListener('input', onRumbleCount);
+      const onRumbleDelay = () => {
+        let mn = Math.min(30, Math.max(0.5, parseFloat($('#setRumbleDelayMin').value) || 2));
+        let mx = Math.min(30, Math.max(mn, parseFloat($('#setRumbleDelayMax').value) || (mn + 1)));
+        LC.config.rumbleDelayMin = mn; LC.config.rumbleDelayMax = mx;
+        LC.Storage.set('config', LC.config);
+        $('#rumbleDelayHint').textContent = (mn === mx) ? `固定 ${mn} 秒` : `${mn} ~ ${mx} 秒`;
+      };
+      $('#setRumbleDelayMin').addEventListener('input', onRumbleDelay);
+      $('#setRumbleDelayMax').addEventListener('input', onRumbleDelay);
+      // 认输概率滑块：耐心期满后他每接一招的认输几率（0% = 永不认输，只有你能结束）
+      $('#setRumbleSurrender').addEventListener('input', (ev) => {
+        const v = parseInt(ev.target.value);
+        LC.config.rumbleSurrenderChance = v / 100;
+        $('#rumbleSurrenderHint').textContent = v + '%';
         LC.Storage.set('config', LC.config);
       });
       // 情绪辅助 / 逻辑关联词辅助：开关 + 应用范围（开启时显示范围选项，三个选一）
@@ -1102,6 +1133,8 @@ window.LoveChat = window.LoveChat || {};
 
     /* ============ 发送逻辑 ============ */
     _onSend() {
+      // 大乱斗进行中：文字通道关闭（输入框已禁用，这里兜底）
+      if (LC.ChatEngine.isBattleActive()) { this._toast('大乱斗进行中，只能发表情哦'); return; }
       const text = this.el.messageInput.value.trim();
       if (!text) return;
       this.el.messageInput.value = '';
@@ -1263,22 +1296,138 @@ window.LoveChat = window.LoveChat || {};
     },
 
     /* ============ 表情包选择器 ============ */
+    /* ============ 表情大乱斗 ============
+     * 规则见 ChatEngine 内注释。UI 侧职责：悬浮窗、计时器、
+     * 输入区上锁（文字/拍一拍/多条发送禁用，只留表情按钮）、系统提示浮现 */
+    _startEmojiBattle() {
+      if (LC.ChatEngine.isBattleActive()) { this._toast('大乱斗已经在进行中了'); return; }
+      const r = LC.ChatEngine.startBattle();
+      if (!r.ok) { this._toast('表情库和 emoji 都是空的，先去添加一些再开战吧'); return; }
+      this._battleUiOn = true;   // 结束流程闸门：保证 _endEmojiBattle 只生效一次
+      this.showTyping(false);     // 清掉可能残留的"正在输入"（被吞掉回合的尾巴）
+      // 悬浮窗出现 + 正计时启动
+      $('#battleFloat').hidden = false;
+      this._battleSec = 0;
+      $('#battleTimer').textContent = '已激战 00:00';
+      if (this._battleTick) clearInterval(this._battleTick);
+      this._battleTick = setInterval(() => {
+        this._battleSec++;
+        const mm = String(Math.floor(this._battleSec / 60)).padStart(2, '0');
+        const ss = String(this._battleSec % 60).padStart(2, '0');
+        $('#battleTimer').textContent = `已激战 ${mm}:${ss}`;
+      }, 1000);
+      this._setBattleInputLock(true);
+      this._toast('大乱斗开始！只能发表情，等你先出招');
+    },
+    /** 结束大乱斗：reason 'user'=你退出 | 'surrender'=他认输/保底
+     *  闸门：只生效一次（他认输的收尾延迟期间你点退出时，两边不会都执行） */
+    _endEmojiBattle(reason, stats) {
+      if (!this._battleUiOn) return;
+      this._battleUiOn = false;
+      if (this._battleTick) { clearInterval(this._battleTick); this._battleTick = null; }
+      $('#battleFloat').hidden = true;
+      this._setBattleInputLock(false);
+      this.showTyping(false);
+      // 认输发生时如果表情选单还开着，把它关掉（里面的战斗内容已失效）
+      const picker = $('#stickerPicker');
+      if (picker && !picker.hidden) this._hideModal('stickerPicker');
+      if (stats) {
+        const line = (reason === 'surrender') ? '对方不想玩啦~' : '表情大乱斗结束';
+        this._renderBattleTip(`${line}（你 ${stats.userCount} 个 · 他 ${stats.partnerCount} 个）`);
+      }
+    },
+    /** 大乱斗期间输入区上锁：文字/拍一拍/多条发送禁用，表情按钮保留 */
+    _setBattleInputLock(on) {
+      const inp = this.el.messageInput;
+      if (on) {
+        // 扩展输入框若正开着，一并收起（它的回车虽被 _onSend 兜底拦截，留着也碍事）
+        if (!this.el.inputExpand.hidden) this._closeInputExpand();
+        inp.disabled = true;
+        inp.placeholder = '大乱斗进行中，只能发表情哦';
+        inp.blur();
+      } else {
+        inp.disabled = false;
+        inp.placeholder = '说点什么……';
+      }
+      this.el.sendBtn.disabled = on;
+      $('#patBtn').classList.toggle('battle-disabled', on);
+      $('#multiSendBtn').classList.toggle('battle-disabled', on);
+    },
+    /** 聊天里浮现一条居中系统提示（不入库，仅本次会话可见） */
+    _renderBattleTip(text) {
+      const div = document.createElement('div');
+      div.className = 'battle-tip';
+      div.textContent = text;
+      this.el.messagesScroll.appendChild(div);
+      this._programmaticScrollBottom(false);
+    },
+    /** 大乱斗发送用回调集（他回表情/认输时驱动界面） */
+    _battleCbs() {
+      return {
+        onUserMessage: (m) => this._renderMessage(m),
+        onTypingStart: () => this.showTyping(true),
+        onTypingEnd: () => this.showTyping(false),
+        onUnit: (m) => this._renderMessage(m),
+        onBattleEnd: (info) => this._endEmojiBattle(info.reason, info),
+      };
+    },
+
     _openStickerPicker() {
       // 底部 4 个弹窗互斥：开表情包前关其他三个
       this._closeBottomPanelsExcept('stickerPicker');
+      const battle = LC.ChatEngine.isBattleActive();
       const stickers = LC.CardLibrary.getAll('sticker').filter(c => typeof c.content === 'string' && c.content.startsWith('data:image/'));
-      if (!stickers.length) { this._toast('表情库还没有图片，去表情库添加吧'); setTimeout(() => this.openCardsPanel(), 800); return; }
+      const emojis = LC.CardLibrary.getAll('emoji').filter(c => typeof c.content === 'string' && c.content.trim());
+      if (battle) {
+        // 大乱斗：图片和 emoji 至少有一样才能开火
+        if (!stickers.length && !emojis.length) { this._toast('表情库和 emoji 都是空的，去添加一些再战吧'); return; }
+      } else {
+        if (!stickers.length) { this._toast('表情库还没有图片，去表情库添加吧'); setTimeout(() => this.openCardsPanel(), 800); return; }
+      }
       // 复用 modal 机制：动态弹窗
       let picker = $('#stickerPicker');
       if (!picker) {
         picker = document.createElement('div');
         picker.id = 'stickerPicker';
         picker.className = 'modal';
-        picker.innerHTML = `<div class="modal-content"><h3 class="modal-title">选择表情包</h3><div class="grid-cards" id="stickerPickerGrid" style="max-height:300px;overflow:auto"></div><div class="modal-actions"><button class="ghost-btn full" id="stickerPickerClose">取消</button></div></div>`;
+        picker.innerHTML = `<div class="modal-content"><h3 class="modal-title" id="stickerPickerTitle">选择表情包</h3><div class="grid-cards" id="stickerPickerGrid" style="max-height:300px;overflow:auto"></div><div class="modal-actions"><button class="ghost-btn full" id="stickerPickerClose">取消</button></div></div>`;
         document.getElementById('app').appendChild(picker);
         $('#stickerPickerClose').addEventListener('click', () => this._hideModal('stickerPicker'));
       }
+      $('#stickerPickerTitle').textContent = battle ? '选择表情（大乱斗）' : '选择表情包';
       const grid = $('#stickerPickerGrid');
+      if (battle) {
+        // 大乱斗模式：emoji 区 + 图片区，点哪个直接发哪个
+        let html = '';
+        if (emojis.length) {
+          html += '<div class="battle-sec-title">emoji</div>' +
+            emojis.map(s => `<div class="grid-card battle-emoji-card" data-id="${esc(s.id)}">${esc(s.content)}</div>`).join('');
+        }
+        if (stickers.length) {
+          html += '<div class="battle-sec-title">表情图片</div>' +
+            stickers.map(s => `<div class="grid-card" data-id="${esc(s.id)}"><img class="gc-img" src="${esc(s.content)}" onerror="this.style.opacity='.2'"></div>`).join('');
+        }
+        grid.innerHTML = html;
+        grid.querySelectorAll('.battle-emoji-card').forEach(c => c.addEventListener('click', () => {
+          const card = LC.CardLibrary.getById('emoji', c.dataset.id);
+          this._hideModal('stickerPicker');
+          if (!card) return;
+          this.el.emptyState.style.display = 'none';
+          LC.ChatEngine.sendBattleEmoji(card.content, this._battleCbs());
+        }));
+        grid.querySelectorAll('.grid-card:not(.battle-emoji-card)').forEach(c => c.addEventListener('click', () => {
+          const card = LC.CardLibrary.getById('sticker', c.dataset.id);
+          this._hideModal('stickerPicker');
+          if (!card || typeof card.content !== 'string' || !card.content.startsWith('data:image/')) {
+            this._toast('表情包数据已损坏，请重新添加');
+            return;
+          }
+          this.el.emptyState.style.display = 'none';
+          LC.ChatEngine.sendBattleSticker(card.content, this._battleCbs());
+        }));
+        this._showModal('stickerPicker');
+        return;
+      }
       grid.innerHTML = stickers.map(s => `<div class="grid-card" data-id="${esc(s.id)}"><img class="gc-img" src="${esc(s.content)}" onerror="this.style.opacity='.2'"></div>`).join('') || '<div class="empty-grid">还没有表情包</div>';
       grid.querySelectorAll('.grid-card').forEach(c => c.addEventListener('click', () => {
         const card = LC.CardLibrary.getById('sticker', c.dataset.id);
@@ -2876,6 +3025,18 @@ window.LoveChat = window.LoveChat || {};
       $('#setMainWordEnabled').checked = !!LC.config.mainWordEnabled;
       $('#setMainWordChance').value = Math.round((LC.config.mainWordChance ?? 0.5) * 100);
       $('#mainWordChanceValue').textContent = Math.round((LC.config.mainWordChance ?? 0.5) * 100) + '%';
+      // 表情大乱斗回显
+      const rCntMin = LC.config.rumbleCountMin ?? 1, rCntMax = LC.config.rumbleCountMax ?? 2;
+      $('#setRumbleCountMin').value = rCntMin;
+      $('#setRumbleCountMax').value = rCntMax;
+      $('#rumbleCountHint').textContent = (rCntMin === rCntMax) ? `固定 ${rCntMin} 个` : `${rCntMin} ~ ${rCntMax} 个`;
+      const rDlyMin = LC.config.rumbleDelayMin ?? 2, rDlyMax = LC.config.rumbleDelayMax ?? 3;
+      $('#setRumbleDelayMin').value = rDlyMin;
+      $('#setRumbleDelayMax').value = rDlyMax;
+      $('#rumbleDelayHint').textContent = (rDlyMin === rDlyMax) ? `固定 ${rDlyMin} 秒` : `${rDlyMin} ~ ${rDlyMax} 秒`;
+      const rSdr = Math.round((LC.config.rumbleSurrenderChance ?? 0.2) * 100);
+      $('#setRumbleSurrender').value = rSdr;
+      $('#rumbleSurrenderHint').textContent = rSdr + '%';
       $('#setWordLogicLink').checked = !!LC.config.wordLogicLink;
       // 情绪辅助 / 逻辑关联词辅助：开关状态 + 范围选项显隐与选中态
       const syncAssistScope = (cfgField, toggleId, rowId) => {

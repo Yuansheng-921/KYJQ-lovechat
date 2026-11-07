@@ -120,6 +120,8 @@ window.LoveChat = window.LoveChat || {};
     sendUserMessage(text, cbs = {}, quote = null) {
       const trimmed = (text || '').trim();
       if (!trimmed) return false;
+      // 大乱斗进行中：文字通道关闭，只能发表情（UI 层已禁用输入框，这里兜底）
+      if (this._battle) return false;
       // 即使对方正在回复（_busy）也允许发送：消息立即显示+存储+累积到 _pending，
       // 由 _flushTurn 结尾衔接新回合（不启动合并计时器，避免和当前回合冲突）
       // 1. 立即显示并记录用户消息（引用信息存入 extra，不进入 _pending 影响回复逻辑）
@@ -150,6 +152,8 @@ window.LoveChat = window.LoveChat || {};
     sendMultiMessage(texts, cbs = {}) {
       const list = (texts || []).map(t => (t || '').trim()).filter(Boolean);
       if (!list.length) return false;
+      // 大乱斗进行中：多条发送通道也关闭（只能发表情）
+      if (this._battle) return false;
       // 即使对方正在回复（_busy）也允许发送：消息立即显示+存储+累积到 _pending，
       // 由 _flushTurn 结尾衔接新回合（与 sendUserMessage 一致）
       const userMsgs = [];
@@ -175,6 +179,8 @@ window.LoveChat = window.LoveChat || {};
     sendPat(text, cbs = {}) {
       const trimmed = (text || '').trim();
       if (!trimmed) return false;
+      // 大乱斗进行中：拍一拍通道也关闭（只能发表情）
+      if (this._battle) return false;
       // 即使对方正在回复也允许拍一拍（与文字消息一致），累积到 _pending 等回合衔接
       // 1. 立即显示我的拍一拍系统消息（直接显示文字内容，不拼"拍了拍我的"句子）
       const patMsg = this._addMsg('me', 'pat', trimmed);
@@ -214,6 +220,140 @@ window.LoveChat = window.LoveChat || {};
       setTimeout(() => { if (this._busy || !this._pending.length) return; cbs.onTypingStart && cbs.onTypingStart(); }, 1000);
       this._mergeTimer = setTimeout(() => this._flushTurn(cbs), win);
       return true;
+    },
+
+    /* ---- 表情大乱斗 ----
+     * 规则（用户确认）：无胜负判定，纯表情沟通玩法。
+     * - 战斗中双方只能发表情（图片/emoji），他只回表情；
+     *   回复数量、回复延迟由设置「表情大乱斗」区间的 rumbleCount/ rumbleDelay 配置控制
+     * - 结束机制"看心情认输"：开战时随机决定最少撑 30~90 秒 + 最少接 4~8 招；
+     *   两个条件都满足后，每次他回复按设置「认输概率」滑块掷骰（连发比上限多一个做挣扎后结束）；
+     *   不设时间上限——想玩多久玩多久，你随时可点退出，他条件满足后随时可能认输
+     * - 认输由 onBattleEnd({reason:'surrender', ...统计}) 回调 UI，浮现系统提示
+     * - 你主动退出：UI 调 endBattle()，不走回调 */
+    _battle: null,
+
+    /** 开战：表情库和 emoji 至少有一个非空才能开 */
+    startBattle() {
+      if (this._battle) return { ok: true };
+      const hasSticker = LC.CardLibrary.getAll('sticker').length > 0;
+      const hasEmoji = LC.CardLibrary.getAll('emoji').length > 0;
+      if (!hasSticker && !hasEmoji) return { ok: false };
+      // 吞掉还没来得及回的文字回合（比如发完消息 5 秒合并窗口内开战），
+      // 否则他的文字回复会漏进战斗，破坏"只回表情"规则
+      if (this._mergeTimer) { clearTimeout(this._mergeTimer); this._mergeTimer = null; }
+      this._pending = [];
+      this._battle = {
+        start: Date.now(),
+        userCount: 0, partnerCount: 0,
+        minEnd: 30000 + Math.floor(Math.random() * 60000),  // 最少撑 30~90 秒
+        minUserMoves: 4 + Math.floor(Math.random() * 5),    // 最少接 4~8 招
+        cbs: null, replyTimer: null, typingTimer: null,
+      };
+      return { ok: true };
+    },
+    isBattleActive() { return !!this._battle; },
+    getBattleStats() {
+      const b = this._battle; if (!b) return null;
+      return { userCount: b.userCount, partnerCount: b.partnerCount, elapsed: Date.now() - b.start };
+    },
+    /** 你主动退出：清空战斗状态并返回本局统计（无战斗则 null） */
+    endBattle() {
+      const b = this._battle; if (!b) return null;
+      if (b.replyTimer) { clearTimeout(b.replyTimer); b.replyTimer = null; }
+      if (b.typingTimer) { clearTimeout(b.typingTimer); b.typingTimer = null; }
+      this._battle = null;
+      return { userCount: b.userCount, partnerCount: b.partnerCount, elapsed: Date.now() - b.start };
+    },
+
+    /** 大乱斗中发表情包图片 */
+    sendBattleSticker(dataUrl, cbs = {}) {
+      if (!this._battle) return this.sendSticker(dataUrl, cbs);
+      const userMsg = this._addMsg('me', 'sticker', dataUrl);
+      cbs.onUserMessage && cbs.onUserMessage(userMsg);
+      this._battle.userCount++;
+      this._battle.cbs = cbs;
+      this._scheduleBattleReply();
+      return true;
+    },
+    /** 大乱斗中发 emoji（emoji 库里的表情文字） */
+    sendBattleEmoji(content, cbs = {}) {
+      if (!this._battle) return false;
+      const userMsg = this._addMsg('me', 'emoji', content);
+      cbs.onUserMessage && cbs.onUserMessage(userMsg);
+      this._battle.userCount++;
+      this._battle.cbs = cbs;
+      this._scheduleBattleReply();
+      return true;
+    },
+    /** 你出招后他的回招调度：按设置的延迟区间等待（连发几个算一招），期间显示"正在输入" */
+    _scheduleBattleReply() {
+      const b = this._battle; if (!b) return;
+      const cbs = b.cbs || {};
+      if (b.replyTimer) { clearTimeout(b.replyTimer); b.replyTimer = null; }
+      if (b.typingTimer) { clearTimeout(b.typingTimer); b.typingTimer = null; }
+      const dMin = Math.max(0.3, LC.config.rumbleDelayMin ?? 2);
+      const dMax = Math.max(dMin, LC.config.rumbleDelayMax ?? dMin);
+      const delayMs = (dMin + Math.random() * (dMax - dMin)) * 1000;
+      b.typingTimer = setTimeout(() => {
+        if (!this._battle) return;
+        cbs.onTypingStart && cbs.onTypingStart();
+      }, Math.min(700, delayMs * 0.5));
+      b.replyTimer = setTimeout(() => this._battleReply(), delayMs);
+    },
+    /** 他的大乱斗回招：只回表情；满足条件时看心情认输 */
+    _battleReply() {
+      const b = this._battle; if (!b) return;
+      const cbs = b.cbs || {};
+      const elapsed = Date.now() - b.start;
+      // 认输判定：耐心期满后每次接招按设置的认输概率掷骰（0% = 永不认输）；不设时间上限
+      const chance = Math.min(1, Math.max(0, LC.config.rumbleSurrenderChance ?? 0.2));
+      const surrender = elapsed >= b.minEnd && b.userCount >= b.minUserMoves && Math.random() < chance;
+      // 回复数量 = 设置的区间随机；认输挣扎 = 比上限多一个
+      const cMin = Math.max(1, LC.config.rumbleCountMin ?? 1);
+      const cMax = Math.max(cMin, LC.config.rumbleCountMax ?? cMin);
+      const count = surrender ? (cMax + 1) : (cMin + Math.floor(Math.random() * (cMax - cMin + 1)));
+      // 取表情弹药：图片优先（75%），emoji 补位；同一回合不重复同一张
+      const stickers = LC.CardLibrary.getAll('sticker');
+      const emojis = LC.CardLibrary.getAll('emoji');
+      const units = [];
+      const usedIds = new Set();
+      for (let k = 0; k < count; k++) {
+        const useSticker = stickers.length && (!emojis.length || Math.random() < 0.75);
+        const mod = useSticker ? 'sticker' : 'emoji';
+        if (!LC.CardLibrary.getAll(mod).length) continue;
+        const c = LC.CardLibrary.selectRandom(mod);
+        if (c && !usedIds.has(c.id)) { usedIds.add(c.id); units.push({ kind: mod, content: c.content }); }
+      }
+      if (!units.length) {
+        // 弹药意外为空（战斗中库被清光）→ 直接认输结束
+        const stats = { userCount: b.userCount, partnerCount: b.partnerCount };
+        this._battle = null;
+        cbs.onTypingEnd && cbs.onTypingEnd();
+        cbs.onBattleEnd && cbs.onBattleEnd({ reason: 'surrender', ...stats });
+        return;
+      }
+      // 逐个发送，保持"正在输入"状态连发
+      let i = 0;
+      const sendNext = () => {
+        const cur = this._battle;
+        if (!cur) { cbs.onTypingEnd && cbs.onTypingEnd(); return; }
+        if (i >= units.length) {
+          cbs.onTypingEnd && cbs.onTypingEnd();
+          if (surrender) {
+            const stats = { userCount: cur.userCount, partnerCount: cur.partnerCount };
+            this._battle = null;
+            setTimeout(() => cbs.onBattleEnd && cbs.onBattleEnd({ reason: 'surrender', ...stats }), 500);
+          }
+          return;
+        }
+        const u = units[i++];
+        const msg = this._addMsg('partner', u.kind, u.content);
+        cur.partnerCount++;
+        cbs.onUnit && cbs.onUnit(msg);
+        setTimeout(sendNext, i < units.length ? 900 + Math.floor(Math.random() * 600) : 250);
+      };
+      sendNext();
     },
 
     /* ---- 回合处理 ---- */

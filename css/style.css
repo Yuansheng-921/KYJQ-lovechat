@@ -1270,6 +1270,58 @@ body.ui-hidden #multiSendModal { display: none !important; }
 }
 [data-theme="dark"] .cat-disabled-hint { background: rgba(229, 72, 77, .22); color: #ff9296; }
 
+/* ---- 表情大乱斗 ---- */
+/* 悬浮窗：聊天区上方居中，压在消息上但不挡操作（z-index 低于弹窗 200） */
+.battle-float {
+  position: fixed;
+  top: 72px; left: 50%; transform: translateX(-50%);
+  z-index: 150;
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  background: var(--surface-elevated);
+  border: 1.5px solid var(--accent);
+  border-radius: var(--radius-lg);
+  padding: 12px 22px;
+  box-shadow: var(--shadow-lg);
+  animation: battleIn .3s var(--ease);
+}
+.battle-float[hidden] { display: none; }
+@keyframes battleIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.battle-title { font-size: 13px; font-weight: 700; color: var(--accent); text-align: center; }
+.battle-timer { font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.battle-exit {
+  padding: 5px 20px; font-size: 12px; cursor: pointer;
+  border: 1.5px solid var(--accent); border-radius: var(--radius-full);
+  background: transparent; color: var(--accent);
+}
+.battle-exit:hover { background: rgba(var(--accent-rgb), .12); }
+/* 聊天内系统提示（开始/结束，不入库） */
+.battle-tip {
+  margin: 12px auto; padding: 5px 14px; width: fit-content;
+  font-size: 12px; color: var(--text-secondary);
+  background: rgba(128, 128, 128, .12); border-radius: var(--radius-full);
+  animation: tipIn .3s var(--ease);
+}
+@keyframes tipIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* 选单分区标题（emoji / 表情图片） */
+.battle-sec-title {
+  grid-column: 1 / -1;
+  font-size: 11px; color: var(--text-secondary);
+  padding: 4px 0 2px;
+}
+.battle-emoji-card {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 56px; font-size: 22px; cursor: pointer;
+  user-select: none;
+}
+/* 大乱斗期间禁用的底部按钮（拍一拍/多条发送） */
+.battle-disabled { opacity: .35 !important; pointer-events: none !important; }
+
 /* ---- 系统拼词：小分类气泡行 + 弹窗内大分类选择行 ---- */
 .sub-cat-chips { padding-top: 0; }
 .sub-cat-chips .cat-chip { height: 24px; padding: 0 10px; font-size: 11px; opacity: .92; }

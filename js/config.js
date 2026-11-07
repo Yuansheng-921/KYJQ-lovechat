@@ -102,6 +102,11 @@ window.LoveChat = window.LoveChat || {};
     wordDisableCustom: false,  // 禁用自定义拼词
     mainWordEnabled: false,   // 开启主字卡拼词（用主字卡自身的字卡拼接成一句）
     mainWordChance: 0.5,      // 主字卡拼词概率：五五开选中主字卡后，按此概率升级为主字卡拼词
+    rumbleCountMin: 1,        // 表情大乱斗：他单次回复表情数量下限
+    rumbleCountMax: 2,        // 上限（与下限相同 = 每回合固定张数）
+    rumbleDelayMin: 2,        // 表情大乱斗：他的回复延迟下限（秒）
+    rumbleDelayMax: 3,        // 上限（秒）
+    rumbleSurrenderChance: 0.2, // 表情大乱斗：条件满足后他每次接招的认输概率（0~1，0=永不认输）
     wordDisabledCats: [],      // 系统拼词已禁用的分类名（长按分类标签切换，禁用的分类不参与抽取）
     wordLogicLink: false,      // 开启逻辑关联词辅助
     restrictedMode: false,     // 限制模式：true=开启（限制字卡不参与自动抽取）；false=关闭（并入主字卡抽取）

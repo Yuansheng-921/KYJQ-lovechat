@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=ZCOOL+XiaoWei&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌸</text></svg>">
+  <link rel="icon" type="image/png" href="心意相连.png">
 </head>
 <body>
 
@@ -75,6 +75,13 @@
       </button>
 
       <!-- 消息区 -->
+      <!-- ===== 表情大乱斗悬浮窗 ===== -->
+      <div class="battle-float" id="battleFloat" hidden>
+        <div class="battle-title">只用表情包来沟通吧！</div>
+        <div class="battle-timer" id="battleTimer">已激战 00:00</div>
+        <button class="battle-exit" id="battleExitBtn">退出游戏</button>
+      </div>
+
       <div class="messages" id="messages">
         <div class="empty-state" id="emptyState">
           <div class="empty-icon">💌</div>
@@ -486,6 +493,31 @@
                 <input type="range" id="setMainWordChance" class="field-range" min="0" max="100" step="5" value="50">
                 <span class="range-value" id="mainWordChanceValue">50%</span>
               </label>
+            </div>
+          </div>
+          <div class="settings-group">
+            <h3 class="settings-group-title">表情大乱斗<button class="group-fold-btn" aria-label="折叠">▾</button></h3>
+            <div class="settings-group-body">
+              <label class="field row-field"><span class="field-label">单次回复数量（个）</span>
+                <span class="field-hint" id="rumbleCountHint">1 ~ 2 个</span>
+              </label>
+              <div class="range-row">
+                <input type="number" id="setRumbleCountMin" class="field-input tiny" min="1" max="10" value="1">
+                <span class="range-dash">~</span>
+                <input type="number" id="setRumbleCountMax" class="field-input tiny" min="1" max="10" value="2">
+              </div>
+              <label class="field row-field"><span class="field-label">表情回复延迟（秒）</span>
+                <span class="field-hint" id="rumbleDelayHint">2 ~ 3 秒</span>
+              </label>
+              <div class="range-row">
+                <input type="number" id="setRumbleDelayMin" class="field-input tiny" min="0.5" max="30" step="0.5" value="2">
+                <span class="range-dash">~</span>
+                <input type="number" id="setRumbleDelayMax" class="field-input tiny" min="0.5" max="30" step="0.5" value="3">
+              </div>
+              <label class="field row-field"><span class="field-label">认输概率（耐心期满后每招）</span>
+                <span class="field-hint" id="rumbleSurrenderHint">20%</span>
+              </label>
+              <input type="range" id="setRumbleSurrender" min="0" max="100" step="5" value="20">
             </div>
           </div>
         </section>

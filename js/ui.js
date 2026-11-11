@@ -3929,9 +3929,9 @@ window.LoveChat = window.LoveChat || {};
       const letter = await LC.Letters.sendLetter(content);
       // 同步到聊天记录：信封样式消息，点开弹窗预览信件
       if (alsoChat) {
-        const chatMsg = { id: 'msg_' + Date.now(), role: 'me', kind: 'letter', content: { letterId: letter.id, preview: content.slice(0, 50) }, time: Date.now() };
+        const chatMsg = { id: 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), role: 'me', kind: 'letter', content: { letterId: letter.id, preview: content.slice(0, 50) }, time: Date.now() };
         LC.ChatEngine.history.push(chatMsg);
-        if (LC.ChatEngine.history.length > 800) LC.ChatEngine.history = LC.ChatEngine.history.slice(-800);
+        // 注意：这里不做任何条数截断（早期 800 条上限已全面废除，聊天记录无上限）
         LC.Storage.set('history', LC.ChatEngine.history);
         this._renderMessage(chatMsg, true);
       }
@@ -4116,6 +4116,9 @@ window.LoveChat = window.LoveChat || {};
       if (n > 0) this.el.lettersBadge.textContent = n > 99 ? '99+' : n;
       // 同步"更多"按钮红点（扩展菜单收起时也能看到有未读信件，只显示红点不显示数字）
       if (this.el.moreMenuBadge) this.el.moreMenuBadge.hidden = n === 0;
+      // 同步"收到的信"标签右上角红点（信件面板内部，tag 上提示有未读）
+      const tabDot = $('#receivedTabDot');
+      if (tabDot) tabDot.hidden = n === 0;
     },
 
     /* 信件设置 */

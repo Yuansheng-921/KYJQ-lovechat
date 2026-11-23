@@ -158,12 +158,14 @@ window.LoveChat = window.LoveChat || {};
 
     getById(module, id) { return (this.data[module] || []).find(c => c.id === id) || null; },
 
-    add(module, cardData) {
+    add(module, cardData, deferSave = false) {
       if (!this.data[module]) this.data[module] = [];
       const card = this._norm(cardData, module, this.data[module].length);
       if (!card.content) return null;
       this.data[module].push(card);
-      this.save();
+      // deferSave：批量导入时逐张不存盘，最后调 save() 一次性存
+      // （旧做法每加一张就全库写盘一次，批量大量图片时手机上非常吃力）
+      if (!deferSave) this.save();
       return card;
     },
 

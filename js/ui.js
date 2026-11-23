@@ -94,6 +94,15 @@ window.LoveChat = window.LoveChat || {};
         scrollBottomBtn: $('#scrollBottomBtn'),
         restrictBtn: $('#restrictBtn'),
       };
+      // 手机输入法弹出时同步"可见区域高度"到 CSS 变量 --vvh，
+      // 信件等弹窗用它缩小到键盘上方可见范围，内部内容才能滚动查看
+      if (window.visualViewport) {
+        const syncVvh = () => {
+          document.documentElement.style.setProperty('--vvh', window.visualViewport.height + 'px');
+        };
+        window.visualViewport.addEventListener('resize', syncVvh);
+        syncVvh();
+      }
       this._bindEvents();
       this._applyRestrictMode();
       this._renderSubTabs();
@@ -2299,16 +2308,28 @@ window.LoveChat = window.LoveChat || {};
       const input = document.createElement('input');
       input.type = 'file'; input.accept = 'image/*'; input.multiple = true;
       input.onchange = async () => {
-        for (const file of input.files) {
+        const files = [...(input.files || [])];
+        if (!files.length) return;
+        let ok = 0, fail = 0;
+        for (const file of files) {
           const url = await this._resizeImage(file);
-          if (url) LC.CardLibrary.add('sticker', { content: url });
+          if (url) { LC.CardLibrary.add('sticker', { content: url }, true); ok++; }
+          else fail++;
         }
+        if (ok) LC.CardLibrary.save();  // 批量结束一次性存盘
         this._renderPanelContent();
+        this._toast(fail ? `导入成功 ${ok} 张，${fail} 张失败（图片过大或格式不支持）` : `导入成功 ${ok} 张`, 2200);
       };
       input.click();
     },
     // 统一图片处理：input 可为 File 或 dataURL 字符串；maxSize 缩放上限
     // sticker 走 File + PNG（保留透明），背景图走 dataURL + JPEG 0.85
+    // 防空白图（手机端实测问题）三重保护：
+    //   1) 两段式降采样：超大源图（>4096px，如相机原片）先降到 ≤4096 中间画布，
+    //      再压到目标尺寸——旧 iOS 对"超大图直接缩到小画布"会静默输出全空白 PNG
+    //   2) 全程 try/catch/finally：任何一步抛错都能正确返回 null，不会卡死 Promise
+    //   3) finally 里释放 canvas/img 内存：批量导入几十张时 iOS 总 canvas 内存
+    //      会被耗尽，后续图片静默变空白，用完立刻释放可避免
     _resizeImage(input, maxSize = 200) {
       return new Promise((resolve) => {
         const handleDataUrl = (dataUrl) => {
@@ -2318,28 +2339,52 @@ window.LoveChat = window.LoveChat || {};
           }
           const img = new Image();
           img.onload = () => {
-            let w = img.naturalWidth || img.width;
-            let h = img.naturalHeight || img.height;
-            if (w > maxSize || h > maxSize) {
-              const r = Math.min(maxSize / w, maxSize / h);
-              w = Math.max(1, Math.round(w * r));
-              h = Math.max(1, Math.round(h * r));
-            }
-            const canvas = document.createElement('canvas');
-            canvas.width = w; canvas.height = h;
-            const ctx = canvas.getContext('2d');
-            // PNG 保留透明 + 补白；其余输出 JPEG
-            const isPng = dataUrl.includes('image/png');
-            if (!isPng) { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h); }
-            ctx.drawImage(img, 0, 0, w, h);
+            let canvases = [];   // 记录所有创建的画布，finally 统一释放
             try {
+              let src = img;     // 当前绘制源（原图或中间画布）
+              let w = img.naturalWidth || img.width;
+              let h = img.naturalHeight || img.height;
+              if (!w || !h) { console.warn('[LoveChat] 图片尺寸无效'); return resolve(null); }
+              // 第一段：超大图先降到 ≤4096（防旧 iOS 静默空白）
+              const HARD_LIMIT = 4096;
+              if (w > HARD_LIMIT || h > HARD_LIMIT) {
+                const r = Math.min(HARD_LIMIT / w, HARD_LIMIT / h);
+                const iw = Math.max(1, Math.round(w * r));
+                const ih = Math.max(1, Math.round(h * r));
+                const mid = document.createElement('canvas');
+                mid.width = iw; mid.height = ih;
+                const mctx = mid.getContext('2d');
+                if (!mctx) { console.warn('[LoveChat] 中间画布 getContext 失败'); return resolve(null); }
+                mctx.drawImage(img, 0, 0, iw, ih);
+                canvases.push(mid);
+                src = mid; w = iw; h = ih;
+              }
+              // 第二段：压到目标尺寸
+              if (w > maxSize || h > maxSize) {
+                const r = Math.min(maxSize / w, maxSize / h);
+                w = Math.max(1, Math.round(w * r));
+                h = Math.max(1, Math.round(h * r));
+              }
+              const canvas = document.createElement('canvas');
+              canvas.width = w; canvas.height = h;
+              canvases.push(canvas);
+              const ctx = canvas.getContext('2d');
+              if (!ctx) { console.warn('[LoveChat] 画布 getContext 失败'); return resolve(null); }
+              // PNG 保留透明 + 补白；其余输出 JPEG
+              const isPng = dataUrl.includes('image/png');
+              if (!isPng) { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h); }
+              ctx.drawImage(src, 0, 0, w, h);
               const mime = isPng ? 'image/png' : 'image/jpeg';
               const out = canvas.toDataURL(mime, isPng ? undefined : 0.85);
               if (typeof out === 'string' && out.startsWith('data:image/')) resolve(out);
-              else resolve(null);
+              else { console.warn('[LoveChat] 图片转码返回异常'); resolve(null); }
             } catch (e) {
-              console.warn('[LoveChat] 图片转码失败:', e);
+              console.warn('[LoveChat] 图片处理失败:', e);
               resolve(null);
+            } finally {
+              // 释放 canvas 内存（iOS 总 canvas 内存有限，批量导入必须及时释放）
+              for (const c of canvases) { try { c.width = 0; c.height = 0; } catch (e) {} }
+              try { img.src = ''; } catch (e) {}
             }
           };
           img.onerror = (e) => { console.warn('[LoveChat] 图片加载失败:', e); resolve(null); };

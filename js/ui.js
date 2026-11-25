@@ -99,8 +99,13 @@ window.LoveChat = window.LoveChat || {};
       if (window.visualViewport) {
         const syncVvh = () => {
           document.documentElement.style.setProperty('--vvh', window.visualViewport.height + 'px');
+          // 标记"键盘已弹出"：可见高度明显小于窗口高度时视为键盘占位
+          // （layout viewport 在 iOS 上不随键盘变化，media query 靠不住，只能靠 JS）
+          const kbOpen = window.visualViewport.height < window.innerHeight - 120;
+          document.body.classList.toggle('kb-open', kbOpen);
         };
         window.visualViewport.addEventListener('resize', syncVvh);
+        window.visualViewport.addEventListener('scroll', syncVvh);
         syncVvh();
       }
       this._bindEvents();
@@ -4110,8 +4115,17 @@ window.LoveChat = window.LoveChat || {};
 
     _showLetterReplyBox(originalLetterId) {
       const footer = this.el.letterModalFooter;
-      footer.innerHTML = `<textarea class="letter-reply-textarea" id="letterReplyArea" placeholder="写下回信…" rows="6"></textarea>`
+      // 回信框不再固定在底部：放进可滚动的内容区，这样键盘弹出把弹窗压矮后，
+      // 可以在"他的信"和"写信区"之间整体上下滑动（固定在底部会把信区压没）
+      footer.hidden = true;
+      footer.innerHTML = '';
+      const body = this.el.letterModalBody;
+      const wrap = document.createElement('div');
+      wrap.className = 'letter-reply-block';
+      wrap.innerHTML = `<div class="letter-divider"></div>`
+        + `<textarea class="letter-reply-textarea" id="letterReplyArea" placeholder="写下回信…" rows="6"></textarea>`
         + `<div class="letter-reply-actions"><button class="ghost-btn sm" id="letterReplyCancel">取消</button><button class="primary-btn" id="letterReplySend">发送</button></div>`;
+      body.appendChild(wrap);
       $('#letterReplyCancel').addEventListener('click', () => {
         this._hideModal('letterModal');
       });
@@ -4124,7 +4138,19 @@ window.LoveChat = window.LoveChat || {};
         this._updateLettersBadge();
         this._toast('回信已寄出', 1500);
       });
-      setTimeout(() => $('#letterReplyArea').focus(), 100);
+      setTimeout(() => {
+        const ta = $('#letterReplyArea');
+        if (!ta) return;
+        ta.focus();
+        // 自动滚到写信区（键盘弹出后仍能看到输入框），想读上面的信往上滑即可
+        try { wrap.scrollIntoView({ block: 'end' }); } catch (e) {}
+        // 键盘完全弹出后（可见高度变化）再校正一次，避免输入框被键盘挡住
+        setTimeout(() => {
+          if (document.activeElement === ta) {
+            try { wrap.scrollIntoView({ block: 'end' }); } catch (e) {}
+          }
+        }, 380);
+      }, 100);
     },
 
     _exportLetters() {

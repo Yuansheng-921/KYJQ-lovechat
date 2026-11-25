@@ -1838,6 +1838,12 @@ body.ui-hidden #multiSendModal { display: none !important; }
 }
 [data-theme="dark"] .letter-reply-textarea { background-color: #2a2418; background-image: linear-gradient(to bottom, transparent 0, transparent calc(1.8em - 1px), #4a3f28 calc(1.8em - 1px), #4a3f28 1.8em); color: #e8dcc0; }
 .letter-reply-actions { display: flex; gap: 8px; justify-content: flex-end; }
+/* 键盘弹出时（body.kb-open，由 JS 依据 visualViewport 判断）写信框压到约 3 行，
+   把省下的高度让给上面的"他的信"，方便边对照边写；键盘收起自动恢复 6 行 */
+body.kb-open .letter-reply-textarea { min-height: 0; height: 100px; }
+/* 回信块（分隔线+写信框+按钮）跟在信件正文后面，随内容区一起滚动 */
+.letter-reply-block { margin-top: 4px; }
+.letter-reply-block .letter-reply-actions { margin-top: 8px; }
 .letter-reply-actions .ghost-btn { min-width: 70px; }
 
 /* ===== 14. 抉择 ===== */
